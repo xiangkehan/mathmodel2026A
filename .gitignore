@@ -31,6 +31,16 @@ venv/
 05-图表/*.png
 05-图表/*.jpg
 
+# ---- LaTeX 构建中间产物（main.pdf 为最终交付，保留跟踪）----
+06-论文/*.aux
+06-论文/*.log
+06-论文/*.out
+06-论文/*.toc
+06-论文/*.fdb_latexmk
+06-论文/*.fls
+06-论文/*.synctex.gz
+06-论文/*.xdv
+
 # ---- 系统/编辑器垃圾 ----
 Thumbs.db
 .DS_Store
