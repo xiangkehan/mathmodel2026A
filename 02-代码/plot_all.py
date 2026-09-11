@@ -1,6 +1,6 @@
 """M5 图表生成（出版级样式重构版）：从 03-数据/ 的唯一数据源出 6 张论文用矢量图。
 
-用法：  python plot_all.py            # 一次出全部 6 张（PDF + 300dpi PNG + 灰度预览）
+用法：  python plot_all.py            # 一次出全部 7 张（PDF + 300dpi PNG + 灰度预览）
          python plot_all.py fig4       # 只出某一张（调试用）
          python plot_all.py --no-cache # fig4 的附4固定R对照曲线强制重算
 
@@ -23,6 +23,8 @@
   fig5  sensitivity.csv、error_budget.csv
   fig6  endogenous_shrinkage.csv（附件2 时刻网格上的各闭合 R_pred、Ū_model、Ū_inf）；
         缺列时回退 附件2.xlsx、q4_main_steps.npz（见 03-数据/内生收缩分析.md）
+  fig7  endogenous_calibrated.csv（附件2 网格上的 R_data、R_pred、残差、失水基线；
+        见 03-数据/内生收缩模型.md）
 
 口径常数（非结果数字，仅用于画线/判定，来源已注明）：
   TH = 0.15 kg/kg  —— 题目问题 3 原文“水分浓度应低于 0.15 kg/kg”
@@ -996,7 +998,110 @@ def fig6():
     save(fig, "fig6_收缩机制分析")
 
 
-FIGS = {"fig1": fig1, "fig2": fig2, "fig3": fig3, "fig5": fig5, "fig6": fig6}
+# ====================== F7 内生收缩贴合 ======================
+def fig7():
+    """内生收缩模型（闭合 C，5 参数标定）对附件2 的贴合度：R(t) 对比 + 残差带。
+
+    数字全部读自 03-数据/endogenous_calibrated.csv（附件2 时刻网格上的 R_data / R_pred /
+    R_ideal / 残差）；模型结构与标定口径见 03-数据/内生收缩模型.md（复现脚本
+    08-临时/endogenous_calibrated.py，只读）。
+    """
+    head, rows = read_csv_rows("endogenous_calibrated.csv")
+    t_s = np.array([float(r["t_s"]) for r in rows])
+    h = t_s / 3600.0
+    R_data = np.array([float(r["R_data_cm"]) for r in rows])
+    R_pred = np.array([float(r["R_pred_cm"]) for r in rows])
+    R_ideal = np.array([float(r["R_ideal_cm"]) for r in rows])
+    res = np.array([float(r["residual_mm"]) for r in rows])      # R_pred − R_data（mm）
+
+    rmse = float(np.sqrt(np.mean(res ** 2)))
+    env = float(np.max(np.abs(res)))                             # 残差包络 ±env mm
+    k_env = int(np.argmax(np.abs(res)))
+    k_min = int(np.argmin(res))
+
+    def cross(m):
+        """m=R/R_ideal 自 <1 穿回 >1 的线性插值时刻（滞后交叉）。"""
+        i = next(j for j in range(1, len(m)) if m[j] > 1.0 > m[j - 1])
+        return float(h[i - 1] + (1.0 - m[i - 1]) * (h[i] - h[i - 1]) / (m[i] - m[i - 1]))
+
+    t_cross_pred = cross(R_pred / R_ideal)
+    t_cross_data = cross(R_data / R_ideal)
+    H_SEG = (3.5, 21.0)          # 三段分界（口径常数：内生收缩分析.md §0）
+    mB = (h >= H_SEG[0]) & (h <= H_SEG[1])
+    res_B = float(np.max(np.abs(res[mB])))
+    assert rmse < 0.1 and env < 0.2, (rmse, env)
+
+    fig, (axA, axB) = plt.subplots(2, 1, figsize=(W_DOUBLE, 3.8), sharex=True,
+                                   gridspec_kw=dict(height_ratios=[2.55, 1.0]))
+    fig.subplots_adjust(left=0.085, right=0.985, top=0.875, bottom=0.155, hspace=0.30)
+
+    # ---- (a) 贴合 ----
+    for x0, x1 in ((0.0, H_SEG[0]), (H_SEG[0], H_SEG[1]), (H_SEG[1], h[-1])):
+        axA.axvspan(x0, x1, color="0.93", lw=0, zorder=0)
+    for xb in H_SEG:
+        axA.axvline(xb, color="0.72", ls=":", lw=0.8, zorder=1)
+    axA.text(0.5 * H_SEG[0], 2.125, "A 急缩", ha="center", va="center",
+             fontsize=7.5, color="0.30")
+    axA.text(0.5 * (H_SEG[0] + H_SEG[1]), 2.125, "B 缓缩", ha="center", va="center",
+             fontsize=7.5, color="0.30")
+    axA.text(26.0, 2.125, "C 冻结", ha="center", va="center", fontsize=7.5, color="0.30")
+    axA.plot(h, R_data, color=ROLE["data"], lw=1.6, zorder=5, label="附件2 实测 $R(t)$")
+    axA.plot(h, R_pred, color=ROLE["model"], ls="--", lw=1.3,
+             label=f"内生模型 $R_{{pred}}(t)$（RMSE={rmse:.3f} mm）")
+    axA.plot(h, R_ideal, color=ROLE["ref"], ls=":", lw=1.2,
+             label="失水理想基线 $R_{ideal}(t)$")
+    axA.axhline(R_data[-1], color=ROLE["guide"], ls=":", lw=1.0)
+    axA.text(h[-1] - 1.0, R_data[-1] + 0.013, f"平台 {R_data[-1]:.3f} cm", ha="right",
+             va="bottom", fontsize=7.5, color="0.30")
+    axA.plot([t_cross_pred], [float(np.interp(t_cross_pred, h, R_ideal))], marker="o",
+             ms=4.6, mfc="white", mec=ROLE["ref"], mew=1.1, zorder=6)
+    axA.annotate(f"滞后交叉 ≈ {t_cross_pred:.0f} h", xy=(t_cross_pred, 1.213),
+                 xytext=(21.0, 1.30), fontsize=7.5, color=ROLE["ref"], ha="left",
+                 va="bottom", arrowprops=dict(arrowstyle="-|>", lw=0.7, color=ROLE["ref"]))
+    axA.set_ylim(1.05, 2.20)
+    axA.set_ylabel("药材半径 $R$ / cm")
+    style_axis(axA, grid="y")
+    axA.legend(loc="upper right", handlelength=1.8, labelspacing=0.28)
+    panel(axA, "(a)", dx=-0.075)
+    tile(axA, "贴合：附件2 vs 内生模型")
+
+    # ---- (b) 残差 ----
+    for x0, x1 in ((0.0, H_SEG[0]), (H_SEG[0], H_SEG[1]), (H_SEG[1], h[-1])):
+        axB.axvspan(x0, x1, color="0.96", lw=0, zorder=0)
+    for xb in H_SEG:
+        axB.axvline(xb, color="0.80", ls=":", lw=0.7, zorder=1)
+    axB.axhline(0.0, color="0.25", lw=0.8)
+    for s in (1.0, -1.0):
+        axB.axhline(s * env, color=ROLE["guide"], ls="--", lw=0.8)
+    axB.plot(h, res, color=ROLE["model"], lw=1.1, zorder=5)
+    axB.text(h[-1] - 1.0, env + 0.012, f"包络 ±{env:.3f} mm", ha="right", va="bottom",
+             fontsize=7.5, color="0.30")
+    axB.annotate(f"最大偏差 {res[k_env]:+.3f} mm @ {h[k_env]:.1f} h",
+                 xy=(h[k_env], res[k_env]), xytext=(0.32, 0.97), textcoords="axes fraction",
+                 fontsize=7.5, ha="left", va="top", color="0.15",
+                 arrowprops=dict(arrowstyle="-|>", lw=0.7, color="0.35"),
+                 bbox=dict(boxstyle="round,pad=0.26", fc="white", ec="0.80", lw=0.5, alpha=0.95))
+    axB.text(0.5 * (H_SEG[0] + H_SEG[1]), -0.245,
+             f"B 段过渡区弱欠拟合（±{env:.2f} mm）", ha="center", va="center",
+             fontsize=7.5, color="0.30")
+    axB.set_ylim(-0.32, 0.32)
+    axB.set_yticks([-0.2, 0.0, 0.2])
+    axB.set_xlim(0, h[-1] + 2.0)
+    axB.set_xlabel("烘干时间 $t$ / h")
+    axB.set_ylabel("残差 / mm")
+    style_axis(axB, grid="y")
+    panel(axB, "(b)", dx=-0.075)
+    tile(axB, "残差（预测−实测）")
+
+    print(f"  [F7] RMSE={rmse:.4f} mm；max|残差|={env:.4f} mm @ {h[k_env]:.1f} h"
+          f"（min {res[k_min]:+.4f} @ {h[k_min]:.1f} h）；B 段(3.5–21 h)|残差|max="
+          f"{res_B:.4f} mm；平台 data {R_data[-1]:.3f} / pred {R_pred[-1]:.4f} cm；"
+          f"滞后交叉 pred {t_cross_pred:.2f} h / data {t_cross_data:.2f} h", flush=True)
+    save(fig, "fig7_内生收缩贴合")
+
+
+FIGS = {"fig1": fig1, "fig2": fig2, "fig3": fig3, "fig5": fig5, "fig6": fig6,
+        "fig7": fig7}
 
 
 def main():
@@ -1005,7 +1110,7 @@ def main():
     ap.add_argument("--no-cache", action="store_true", help="fig4 对照曲线强制重算")
     a = ap.parse_args()
     plt.rcParams.update(RC)
-    want = a.only or ["fig1", "fig2", "fig3", "fig4", "fig5", "fig6"]
+    want = a.only or ["fig1", "fig2", "fig3", "fig4", "fig5", "fig6", "fig7"]
     for k in want:
         print(f"[{k}] 作图 …", flush=True)
         if k == "fig4":
@@ -1035,7 +1140,7 @@ def main():
         print(f"[门禁] FAIL：缺字 {len(GLYPH.msgs)} 条，审计不合格 {len(bad)} 张 "
               f"({', '.join(r['stem'] for r in bad)})", flush=True)
         sys.exit(1)
-    print("[门禁] PASS：6 项审计全部通过", flush=True)
+    print(f"[门禁] PASS：{len(AUDIT)} 张图审计全部通过", flush=True)
 
 
 if __name__ == "__main__":
