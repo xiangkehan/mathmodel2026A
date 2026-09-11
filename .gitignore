@@ -1,0 +1,42 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+.env
+*.egg-info/
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+
+# ---- 一次性临时内容（不入库）----
+08-临时/
+*.tmp
+*.bak
+~$*
+
+# ---- 运行产物（一条命令可重新生成，不入库）----
+# 最终交付工作簿（体积大，由求解脚本重新生成）
+04-结果/*.xlsx
+04-结果/*.xlsm
+# 中间数据
+03-数据/*.npz
+03-数据/*.npy
+03-数据/*.h5
+03-数据/*.csv
+# 求解日志（体积可能大）
+03-数据/*.log
+
+# ---- 图表中间产物（矢量 PDF 保留，位图不入库）----
+05-图表/*.png
+05-图表/*.jpg
+
+# ---- 系统/编辑器垃圾 ----
+Thumbs.db
+.DS_Store
+desktop.ini
+*.swp
+
+# ---- OCR 中间产物（若在仓库内）----
+_mineru/
