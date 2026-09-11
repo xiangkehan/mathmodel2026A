@@ -44,9 +44,9 @@
   "Ta_max_K": 323.39599999999996,
   "second_mode_ratio": 5.724601745080518e-14
  },
- "wall_main_s": 96.05045569999857,
- "wall_write2_s": 47.46749980000095,
- "wall_total_s": 708.2332834000008,
+ "wall_main_s": 133.34995150000032,
+ "wall_write2_s": 58.280363099998794,
+ "wall_total_s": 918.5306926999983,
  "md5_result2": "12cde4e80c03f71d4f5c8e41ed2c65a1",
  "md5_result3": "fbe982ffb705c75df85776942d460738",
  "stats_main": {
