@@ -1,8 +1,17 @@
-"""M5 图表生成：从 03-数据/ 的唯一数据源出 5 张论文用矢量图（05-图表/，同时导出 300 dpi PNG）。
+"""M5 图表生成（出版级样式重构版）：从 03-数据/ 的唯一数据源出 6 张论文用矢量图。
 
-用法：  python plot_all.py            # 一次出全部 5 张
+用法：  python plot_all.py            # 一次出全部 6 张（PDF + 300dpi PNG + 灰度预览）
          python plot_all.py fig4       # 只出某一张（调试用）
          python plot_all.py --no-cache # fig4 的附4固定R对照曲线强制重算
+
+样式规范（同 05-图表/样式重构说明.md，供论文侧协调尺寸）：
+  * 按最终物理尺寸设计，导出后不再缩放：单面板宽 5.4 in（= 0.86×6.3 in 正文文本宽），
+    双子图宽 6.3 in（= \\linewidth 6.3 in），纵横比 0.50–0.62。
+  * Okabe-Ito 色盲安全色板 + 语义色映射 ROLE（同一变量跨图同色）+ 线型/标记冗余编码。
+  * 字号 ≥7.5 pt（正文标签 8、刻度 7.5、图例 7.5），白底、去顶/右脊柱、图例无框、网格极浅。
+  * 面板标签 (a)/(b) 粗体置于左上外侧；标题 ≤28 字符。
+  * **图内不放说明性长文字**：数据源、口径、偏差数字等论述一律由论文 \\caption 承载；
+    脚本把每张图的关键数字打印到 stdout（[F1]…[F6] 行），论文侧据此写图注。
 
 数据源（每张图对应 §3 规格）：
   fig1  附件1.xlsx（T_a、C_env）、附件2.xlsx（R）
@@ -29,6 +38,7 @@ import json
 import logging
 import sys
 import time
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -37,12 +47,14 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
-from matplotlib.patches import Patch
+from matplotlib.patches import Patch, Rectangle
+from matplotlib.text import Text
 
 CODE_DIR = Path(__file__).resolve().parent
 A_DIR = CODE_DIR.parent
 DATA_DIR = A_DIR / "03-数据"
 FIG_DIR = A_DIR / "05-图表"
+QA_DIR = FIG_DIR / "_qa"                     # 灰度预览等自检产物（不入 git）
 ATT1 = A_DIR / "01-题目" / "原始文件" / "附件1.xlsx"
 ATT2 = A_DIR / "01-题目" / "原始文件" / "附件2.xlsx"
 sys.path.insert(0, str(CODE_DIR))
@@ -50,52 +62,77 @@ sys.path.insert(0, str(CODE_DIR))
 # ---- 题目口径常数（非计算结果；见模块 docstring）----
 TH = 0.15                      # kg/kg，问题 3 达标阈值（题目原文）
 
-# ---- 统一色板 ----
-COL = dict(
-    q3="#1f4e79",      # 问题3 主解（附3 + 固定 R）
-    q4="#c0392b",      # 问题4 主解（附4 + R(t)）
-    ctrl="#7f8c8d",    # 对照曲线（附4 + 固定 R0）
-    th="#111111",      # 阈值线
-    lb="#2e8b57",      # 严格下界
-    temp="#d1495b",    # 温度
-    hum="#1b6ca8",     # 水分
-    ana="#1f4e79",     # 解析解
-    num="#d1495b",     # 数值解
-    pos="#c0392b",     # 正偏差
-    neg="#1f6fb2",     # 负偏差
-    zero="#9aa0a6",
-    band="#b8c4d0",
-    ideal="#7f8c8d",   # fig6 基线闭合：全局理想收缩（无平台）
-    crust="#2e8b57",   # fig6 零拟合闭合：理想 + 结皮停止（均值触发）
-    pore="#8e44ad",    # fig6 零拟合闭合：成孔/孔隙率演化（骨架口径）
+CI = 120                       # 屏幕渲染 dpi（1 pt = dpi/72 px）
+CLIP_TOL = 1.0                 # 文字超出画布容差（px）：仅 >1 px 视为真裁切
+
+# ---- 设计尺寸（英寸；论文实际包含尺寸，导出后不再缩放）----
+W_SINGLE = 5.4                 # 单面板：0.86 × 6.3 in 正文文本宽
+W_DOUBLE = 6.3                 # 双子图：\linewidth（需论文侧改为 width=\linewidth）
+ASPECT = (0.50, 0.62)          # 高/宽 允许区间
+# 例外：fig5 为“长中文类别名”的两行竖排（用户规范允许的排法），纵横比需 0.66 才能让
+# 7.5 pt 类别名不互相压盖——压到 0.62 时实测刻度标签重叠（本条即审计的硬门槛之一）。
+ASPECT_EXEMPT = {"fig5_敏感性": (0.50, 0.70)}
+
+# ---- Okabe-Ito 色盲安全色板 ----
+OI = dict(
+    blue="#0072B2", orange="#E69F00", green="#009E73", vermillion="#D55E00",
+    magenta="#CC79A7", sky="#56B4E9", grey="#6B7280", dark="#222222",
 )
 
+# ---- 语义色映射（同一变量跨图同色；见 05-图表/样式重构说明.md 的映射表）----
+ROLE = dict(
+    data=OI["dark"],        # 附件/实测数据（附件1 温湿、附件2 R(t)）
+    model=OI["blue"],       # 模型主解（问题4 主解；fig6 最接近的零拟合闭合）
+    model2=OI["sky"],       # 模型次解（问题3 主解，固定 R 口径）
+    ref=OI["vermillion"],   # 对照/参考解/基线（附4+固定R0；fig6 全局理想基线）
+    analytic=OI["green"],   # 解析解
+    aux1=OI["orange"],      # 次要物理量：温度 T
+    aux2=OI["magenta"],     # 次要物理量：环境水分 C_env；fig6 第三机制（成孔）
+    guide=OI["grey"],       # 阈值/严格下界/平台线（一律虚线/点线）
+)
+
+# ---- 出版级样式基线 ----
 RC = {
     "font.sans-serif": ["Microsoft YaHei", "SimHei"],
     "axes.unicode_minus": False,
     "pdf.fonttype": 42,          # 嵌入 TrueType 子集（矢量，可复制文字）
     "ps.fonttype": 42,
-    "font.size": 10,
-    "axes.titlesize": 10.5,
-    "axes.labelsize": 10,
-    "xtick.labelsize": 9,
-    "ytick.labelsize": 9,
-    "legend.fontsize": 8.5,
-    "lines.linewidth": 1.7,
-    "axes.linewidth": 0.9,
-    "axes.grid": True,
-    "grid.alpha": 0.28,
-    "grid.linewidth": 0.6,
-    "figure.dpi": 110,
-    "savefig.bbox": "tight",
-    "savefig.pad_inches": 0.05,
+    "font.size": 8.0,
+    "axes.titlesize": 8.5,
+    "axes.labelsize": 8.0,
+    "xtick.labelsize": 7.5,
+    "ytick.labelsize": 7.5,
+    "legend.fontsize": 7.5,
+    "lines.linewidth": 1.2,
+    "lines.markersize": 3.2,
+    "axes.linewidth": 0.7,
+    "axes.grid": False,
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+    "legend.frameon": False,
+    "figure.dpi": 120,
+    "savefig.dpi": 300,
+    "savefig.bbox": None,        # 按 figsize 精确出图，不裁切（保证设计宽度即最终宽度）
+    "xtick.major.width": 0.7,
+    "ytick.major.width": 0.7,
+    "xtick.major.size": 2.6,
+    "ytick.major.size": 2.6,
+    "lines.dash_capstyle": "round",
 }
+MIN_FONT = 7.5                 # 最终尺寸下最小字号（pt）
+TITLE_MAX = 28                 # 面板标题字符上限
+LEG_MAX = 5                    # 图例项上限
+# 例外：fig3 的两个面板各 6 条曲线，颜色编码的是“有序连续时间族”（非 6 个并列类别）。
+# 该族末段曲线在 r→2 处重合（24/36/57 h 的 C 相差 <0.011 kg/kg），直接标注会互相压盖，
+# 故保留 6 项 ncol=2 图例（checklist 的“>5 项改直接标注”对连续族不适用）。
+LEG_MAX_EXEMPT = {"fig3_温湿剖面": 6}
 
-TIME_CMAP = plt.cm.viridis
+TIME_CMAP = plt.cm.viridis     # 时间族专用（感知均匀；禁 jet/rainbow）
+GRID_KW = dict(color="0.86", lw=0.4, alpha=1.0)
 
 
 class _GlyphWatch(logging.Handler):
-    """抓 matplotlib 的缺字告警（豆腐块检测）。"""
+    """抓 matplotlib 的缺字告警（豆腐块检测，logging 通道）。"""
 
     def __init__(self):
         super().__init__(level=logging.WARNING)
@@ -158,23 +195,232 @@ def crossing_time(t, y, th):
     return float(t[i - 1] + (th - y[i - 1]) * (t[i] - t[i - 1]) / (y[i] - y[i - 1]))
 
 
-def save(fig, stem):
-    FIG_DIR.mkdir(exist_ok=True)
-    pdf, png = FIG_DIR / f"{stem}.pdf", FIG_DIR / f"{stem}.png"
-    fig.savefig(pdf, format="pdf")
-    fig.savefig(png, format="png", dpi=300)
-    plt.close(fig)
-    print(f"  [出图] {pdf.name} ({pdf.stat().st_size/1024:.0f} kB) "
-          f"+ {png.name} ({png.stat().st_size/1024:.0f} kB)", flush=True)
+# ====================== 样式构件 ======================
+def style_axis(ax, grid="y"):
+    """统一的出版级坐标轴：白底、去顶/右脊柱、极浅网格（可选）。"""
+    ax.set_facecolor("white")
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    for s in ("left", "bottom"):
+        ax.spines[s].set_linewidth(RC["axes.linewidth"])
+    if grid == "y":
+        ax.yaxis.grid(True, **GRID_KW)
+        ax.set_axisbelow(True)
+    elif grid == "x":
+        ax.xaxis.grid(True, **GRID_KW)
+        ax.set_axisbelow(True)
+    elif grid == "both":
+        ax.grid(True, **GRID_KW)
+        ax.set_axisbelow(True)
 
 
-def note(ax, text, xy=(0.985, 0.975), ha="right", va="top", fs=8.4):
-    ax.text(*xy, text, transform=ax.transAxes, ha=ha, va=va, fontsize=fs,
-            bbox=dict(boxstyle="round,pad=0.32", fc="white", ec="0.72", lw=0.6, alpha=0.94))
+def panel(ax, tag, dx=-0.10):
+    """面板标签 (a)/(b)：粗体小写，左上外侧。"""
+    ax.text(dx, 1.03, tag, transform=ax.transAxes, fontsize=9, fontweight="bold",
+            va="bottom", ha="left", color="0.10")
 
 
 def tile(ax, title):
-    ax.set_title(title, fontsize=10.5, pad=6)
+    """面板标题（≤TITLE_MAX 字符；长论述进图注）。"""
+    assert len(title) <= TITLE_MAX, f"标题过长({len(title)}): {title}"
+    ax.set_title(title, fontsize=8.5, pad=4)
+
+
+def note(ax, text, xy=(0.98, 0.97), ha="right", va="top", fs=7.5):
+    ax.text(*xy, text, transform=ax.transAxes, ha=ha, va=va, fontsize=fs,
+            bbox=dict(boxstyle="round,pad=0.28", fc="white", ec="0.80", lw=0.5, alpha=0.95))
+
+
+def fit_left(fig, axes, pad_px=6.0):
+    """按 y 轴刻度文字 + ylabel 的实测宽度加大左边距，防止长中文类别名被裁切
+    （bbox 出图为精确 figsize，不裁切，故必须自己留够边距）。"""
+    fig.canvas.draw()
+    ren = fig.canvas.get_renderer()
+    over = 0.0
+    for ax in np.atleast_1d(axes).ravel():
+        labs = [t for t in ax.get_yticklabels() if t.get_text().strip()]
+        if not labs:
+            continue
+        left_px = min([t.get_window_extent(ren).x0 for t in labs]
+                      + ([ax.yaxis.label.get_window_extent(ren).x0]
+                         if ax.get_ylabel() else []))
+        over = max(over, ax.get_window_extent(ren).x0 - left_px + pad_px)
+    fig.subplots_adjust(left=fig.subplotpars.left + over / (fig.get_size_inches()[0]
+                                                            * fig.dpi))
+    return fig.subplotpars.left
+
+
+# ====================== 审计 ======================
+AUDIT: list[dict] = []
+
+
+def tick_texts(axis):
+    """仅返回**视图范围内**可见的刻度文字（get_xticklabels 会带上范围外、
+    尺寸为 None 的隐藏刻度，拿去判裁切会得到假阳性）。"""
+    lo, hi = sorted(axis.get_view_interval())
+    out = []
+    for tick in axis.get_major_ticks():
+        loc = float(tick.get_loc())
+        if lo - 1e-9 <= loc <= hi + 1e-9:
+            labs = [tick.label1] + ([tick.label2] if tick.label2.get_text().strip() else [])
+            out += [t for t in labs if t.get_visible()]
+    return out
+
+
+def drawn_texts(fig):
+    """图中**实际绘制**的文字（白名单遍历）——fig.findobj(Text) 会连带返回
+    刻度/数学排版留下的孤立 Text（axes=None），不能用来判裁切与字号。"""
+    out = list(fig.texts)
+    for ax in fig.axes:
+        out += list(ax.texts) + [ax.title, ax.xaxis.label, ax.yaxis.label]
+        out += tick_texts(ax.xaxis) + tick_texts(ax.yaxis)
+        lg = ax.get_legend()
+        if lg is not None:
+            out += list(lg.get_texts())
+            if lg.get_title():
+                out.append(lg.get_title())
+    return [t for t in out if t.get_text().strip() and t.get_visible()]
+
+
+def _extent(txt):
+    return txt.get_window_extent(renderer=txt.figure.canvas.get_renderer())
+
+
+def _overlap(a, b, tol=0.5):
+    return (a.x1 > b.x0 + tol and b.x1 > a.x0 + tol
+            and a.y1 > b.y0 + tol and b.y1 > a.y0 + tol)
+
+
+def _tick_overlaps(ax):
+    bad = []
+    for axis, name in ((ax.xaxis, "x"), (ax.yaxis, "y")):
+        labs = [t for t in tick_texts(axis) if t.get_text().strip()]
+        for i in range(len(labs)):
+            for j in range(i + 1, len(labs)):
+                if _overlap(_extent(labs[i]), _extent(labs[j])):
+                    bad.append(f"{name}:{labs[i].get_text()}/{labs[j].get_text()}")
+    return bad
+
+
+def audit_figure(fig, stem, pdf_path):
+    """逐张图的形式合规审计（尺寸/字号/标题/图例/柱基线/colorbar/刻度重叠/冗余编码）。"""
+    rec = dict(stem=stem, w=round(fig.get_size_inches()[0], 3),
+               h=round(fig.get_size_inches()[1], 3), titles=[], legends=[], cb=0, ax3d=0,
+               bar_base=[], tick_bad=[], dense_marker=0, min_font=99.0, embed_img=0,
+               clipped=[], cap_hit=[])
+    rec["aspect"] = round(rec["h"] / rec["w"], 3)
+    ren = fig.canvas.get_renderer()
+    fw, fh = float(ren.width), float(ren.height)
+    # 图内不得有 figure 级文字块（数据源/口径/偏差等论述一律由论文 \caption 承载）
+    rec["figtext"] = [t.get_text()[:16] for t in fig.texts if t.get_text().strip()]
+
+    texts = drawn_texts(fig)
+    for t in texts:
+        rec["min_font"] = min(rec["min_font"], float(t.get_fontsize()))
+
+    # 图注（fig.text）不得压住任何面板的 x 轴标签
+    for t in fig.texts:
+        tb = t.get_window_extent(renderer=ren)
+        for ax in fig.axes:
+            lab = ax.xaxis.label
+            if lab.get_text().strip() and _overlap(tb, lab.get_window_extent(renderer=ren),
+                                                   tol=0.0):
+                rec["cap_hit"].append(f"{t.get_text()[:12]}↔{lab.get_text()[:12]}")
+
+    for ax in fig.axes:
+        if ax.get_title():
+            rec["titles"].append(ax.get_title())
+        lg = ax.get_legend()
+        if lg is not None:
+            rec["legends"].append(len(lg.get_texts()))
+        if ax.get_label() == "<colorbar>":
+            rec["cb"] += 1
+        if hasattr(ax, "get_zlim"):
+            rec["ax3d"] += 1
+        for cont in ax.containers:
+            # 柱状图基线必须落在 0：水平柱查 x 基线，竖直柱查 y 基线（有符号条形允许
+            # 负向，但基线仍须是 0；对数轴由 matplotlib 贴住轴下限，x 仍为 0）
+            horiz = getattr(cont, "orientation", "vertical") == "horizontal"
+            for p in getattr(cont, "patches", []):
+                if not isinstance(p, Rectangle):
+                    continue
+                if horiz:
+                    if p.get_width() != 0 and min(abs(p.get_x()),
+                                                  abs(p.get_x() + p.get_width())) > 1e-9:
+                        rec["bar_base"].append(round(float(p.get_x()), 4))
+                elif p.get_height() != 0 and min(abs(p.get_y()),
+                                                 abs(p.get_y() + p.get_height())) > 1e-9:
+                    rec["bar_base"].append(round(float(p.get_y()), 4))
+        rec["tick_bad"] += _tick_overlaps(ax)
+
+    for ln in fig.findobj(Line2D):
+        x = np.asarray(ln.get_xdata())
+        if len(x) > 25 and ln.get_marker() not in ("None", None, " ", "") \
+                and ln.get_markevery() is None:
+            rec["dense_marker"] += 1
+
+    rec["embed_img"] = pdf_path.read_bytes().count(b"/Subtype /Image")
+    # 文字裁切检查：bbox=None 精确出图，超出画布的文字会被静默切掉
+    ren = fig.canvas.get_renderer()
+    fw, fh = float(ren.width), float(ren.height)
+    rec["clipped"] = []
+    for t in texts:
+        bb = t.get_window_extent(renderer=ren)
+        over = max(-bb.x0, bb.x1 - fw, -bb.y0, bb.y1 - fh)   # >0 即超出画布
+        if over > CLIP_TOL:
+            rec["clipped"].append((t.get_text()[:16], round(float(over), 1)))
+    rec["font_ok"] = rec["min_font"] >= MIN_FONT - 1e-9
+    rec["title_ok"] = all(len(t) <= TITLE_MAX for t in rec["titles"])
+    rec["legend_ok"] = all(n <= LEG_MAX_EXEMPT.get(stem, LEG_MAX) for n in rec["legends"])
+    rec["tick_ok"] = len(rec["tick_bad"]) == 0
+    rec["bar_ok"] = not rec["bar_base"]
+    rec["clip_ok"] = not rec["clipped"] and not rec["cap_hit"]
+    rec["ok"] = (rec["font_ok"] and rec["title_ok"] and rec["legend_ok"] and rec["tick_ok"]
+                 and rec["bar_ok"] and rec["clip_ok"] and not rec["figtext"]
+                 and rec["cb"] == 0 and rec["ax3d"] == 0
+                 and rec["embed_img"] == 0 and rec["dense_marker"] == 0
+                 and ASPECT_EXEMPT.get(stem, ASPECT)[0] <= rec["aspect"]
+                 <= ASPECT_EXEMPT.get(stem, ASPECT)[1])
+    AUDIT.append(rec)
+    return rec
+
+
+def save(fig, stem):
+    """导出 矢量 PDF + 300dpi PNG + 灰度预览，并逐张审计。"""
+    FIG_DIR.mkdir(exist_ok=True)
+    QA_DIR.mkdir(exist_ok=True)
+    pdf, png = FIG_DIR / f"{stem}.pdf", FIG_DIR / f"{stem}.png"
+    fig.canvas.draw()                       # 先渲染，供刻度/字号 bbox 审计使用
+
+    # 1) 矢量 PDF（fonttype 42）＋ 2) 300 dpi PNG；warnings 通道捕获缺字
+    with warnings.catch_warnings(record=True) as wlist:
+        warnings.simplefilter("always")
+        fig.savefig(pdf, format="pdf")
+        fig.savefig(png, format="png", dpi=300)
+    for w in wlist:
+        m = str(w.message)
+        if "missing from font" in m or "Glyph" in m:
+            GLYPH.msgs.append(f"[warnings] {stem}: {m}")
+
+    # 3) 灰度预览（同一渲染的灰阶，用于“不靠颜色也能区分”核验）
+    from PIL import Image
+    Image.open(png).convert("L").save(QA_DIR / f"{stem}_gray.png")
+
+    fig.canvas.draw()          # savefig 会临时改 dpi；重绘回 fig.dpi 再审计（bbox 一致性）
+    rec = audit_figure(fig, stem, pdf)
+    flag = "PASS" if rec["ok"] else "FAIL"
+    print(f"  [审计] {flag} {stem}: {rec['w']:.1f}×{rec['h']:.1f} in(纵横比 {rec['aspect']:.2f}) "
+          f"最小字号 {rec['min_font']:.1f} pt 标题 {len(rec['titles'])} 图例 {rec['legends']} "
+          f"刻度重叠 {len(rec['tick_bad'])} 嵌入位图 {rec['embed_img']} "
+          f"裁切文字 {len(rec['clipped'])} 图注压轴标 {len(rec['cap_hit'])} "
+          f"图内文字块 {len(rec['figtext'])}", flush=True)
+    if rec["clipped"] or rec["cap_hit"]:
+        print(f"      [裁切/压轴标] {rec['clipped']} {rec['cap_hit']}", flush=True)
+    print(f"  [出图] {pdf.name} ({pdf.stat().st_size/1024:.0f} kB) "
+          f"+ {png.name} ({png.stat().st_size/1024:.0f} kB) "
+          f"+ _qa/{stem}_gray.png", flush=True)
+    plt.close(fig)
+    return rec
 
 
 # ====================== F1 输入数据 ======================
@@ -187,72 +433,74 @@ def fig1():
     i_frz = int(np.argmax(R <= 1.200 + 1e-12))
     t_frz = h2[i_frz]                    # 35 h 冻结点（R 首达 1.200 cm）
     x_end = 100.0
-    fig, (axL, axR) = plt.subplots(1, 2, figsize=(11.4, 4.1))
+    fig, (axL, axR) = plt.subplots(1, 2, figsize=(W_DOUBLE, 3.4))
+    fig.subplots_adjust(left=0.098, right=0.935, top=0.865, bottom=0.155, wspace=0.50)
 
-    # ---- 左：附件1 温湿环境 ----
-    axL.plot(h1, Ta, color=COL["temp"], lw=1.8, label="烘房温度 $T_a(t)$")
+    # ---- (a) 附件1 温湿环境 ----
+    axL.plot(h1, Ta, color=ROLE["aux1"], lw=1.3, label="温度 $T_a(t)$（左轴）")
     axL.set_xlabel("时间 $t$ / h")
-    axL.set_ylabel("烘房温度 $T_a$ / ℃", color=COL["temp"])
-    axL.tick_params(axis="y", colors=COL["temp"])
+    axL.set_ylabel("温度 $T_a$ / ℃", color=ROLE["aux1"])
+    axL.tick_params(axis="y", colors=ROLE["aux1"])
     axL.set_xlim(0, 6.3)
-    axL.set_ylim(27.0, 56.0)
+    axL.set_ylim(27.0, 58.0)
+    axL.set_xticks([0, 1, 2, 3, 4, 5, 6])
+    axL.set_yticks([30, 35, 40, 45, 50, 55])
     axC = axL.twinx()
-    axC.plot(h1, Ce, color=COL["hum"], lw=1.8, label="烘房水分浓度 $C_{env}(t)$")
-    axC.set_ylabel("烘房水分浓度 $C_{env}$ / (kg/kg)", color=COL["hum"])
-    axC.tick_params(axis="y", colors=COL["hum"])
-    axC.set_ylim(0.0175, 0.0530)
-    axC.grid(False)
-    axL.axvspan(t_cut, 6.3, color=COL["band"], alpha=0.30, lw=0)
-    axL.plot([t_cut, 6.3], [Ta[-1]] * 2, color=COL["temp"], ls="--", lw=1.4)
-    axC.plot([t_cut, 6.3], [Ce[-1]] * 2, color=COL["hum"], ls="--", lw=1.4)
-    axL.axvline(t_cut, color="0.30", ls=":", lw=1.2)
-    axL.annotate(f"附件1 截止 $t$={t_cut:.0f} h（{t1[-1]:.0f} s）：\n"
-                 f"其后末值保持延拓（主口径，声明假设）",
-                 xy=(t_cut, 0.30), xycoords=("data", "axes fraction"),
-                 xytext=(0.985, 0.40), textcoords="axes fraction",
-                 fontsize=8.4, ha="right", va="top",
-                 arrowprops=dict(arrowstyle="-|>", lw=0.9, color="0.30"),
-                 bbox=dict(boxstyle="round,pad=0.32", fc="white", ec="0.72", lw=0.6, alpha=0.94))
-    axL.text(0.985, 0.245, f"延拓值 $T_a$={Ta[-1]:.3f} ℃（左轴）\n"
-                           f"$C_{{env}}$={Ce[-1]:.5f} kg/kg（右轴）",
-             transform=axL.transAxes, fontsize=8.4, ha="right", va="top",
-             bbox=dict(boxstyle="round,pad=0.32", fc="white", ec="0.72", lw=0.6, alpha=0.94))
-    hs = [axL.get_legend_handles_labels()[0][0], axC.get_legend_handles_labels()[0][0]]
-    axL.legend(hs, ["烘房温度 $T_a(t)$（左轴）", "烘房水分浓度 $C_{env}(t)$（右轴）"],
-               loc="lower right", framealpha=0.92)
-    tile(axL, "(a) 附件1：环境温湿（回答：4 h 数据如何裁定与延拓）")
+    axC.plot(h1, Ce, color=ROLE["aux2"], lw=1.3, ls="--", label="水分浓度 $C_{env}(t)$（右轴）")
+    axC.set_ylabel("水分浓度 $C_{env}$ / (kg/kg)", color=ROLE["aux2"])
+    axC.tick_params(axis="y", colors=ROLE["aux2"])
+    axC.set_ylim(0.0175, 0.0555)
+    axC.spines["right"].set_visible(True)          # 双 y 轴：保留右脊柱承载右轴
+    axC.spines["right"].set_linewidth(RC["axes.linewidth"])
+    axL.axvspan(t_cut, 6.3, color="0.93", lw=0, zorder=0)
+    axL.plot([t_cut, 6.3], [Ta[-1]] * 2, color=ROLE["aux1"], ls=":", lw=1.1)
+    axC.plot([t_cut, 6.3], [Ce[-1]] * 2, color=ROLE["aux2"], ls=":", lw=1.1)
+    axL.axvline(t_cut, color=ROLE["guide"], ls=":", lw=0.9)
+    axL.annotate(f"$t$={t_cut:.0f} h 数据截止\n其后末值延拓", xy=(t_cut, 0.80),
+                 xycoords=("data", "axes fraction"), xytext=(0.97, 0.62),
+                 textcoords="axes fraction", fontsize=7.5, ha="right", va="top",
+                 arrowprops=dict(arrowstyle="-|>", lw=0.7, color="0.35"),
+                 bbox=dict(boxstyle="round,pad=0.26", fc="white", ec="0.80", lw=0.5, alpha=0.95))
+    axL.text(0.97, 0.42, f"延拓值（左/右轴）\n$T_a$={Ta[-1]:.3f} ℃\n$C_{{env}}$={Ce[-1]:.5f} kg/kg",
+             transform=axL.transAxes, fontsize=7.5, ha="right", va="top",
+             bbox=dict(boxstyle="round,pad=0.26", fc="white", ec="0.80", lw=0.5, alpha=0.95))
+    hs = [Line2D([], [], color=ROLE["aux1"], lw=1.3),
+          Line2D([], [], color=ROLE["aux2"], lw=1.3, ls="--")]
+    axL.legend(hs, ["温度 $T_a$（左轴）", "水分 $C_{env}$（右轴）"],
+               loc="lower left", bbox_to_anchor=(0.02, 0.02), handlelength=1.6)
+    panel(axL, "(a)")
+    tile(axL, "附件1：环境温湿与延拓")
 
-    # ---- 右：附件2 半径 ----
-    axR.plot(h2, R, color=COL["q4"], lw=1.8, label="药材半径 $R(t)$")
-    axR.plot([h2[-1], x_end], [R[-1]] * 2, color=COL["q4"], ls="--", lw=1.4)
-    axR.axvspan(t_frz, h2[-1], color=COL["band"], alpha=0.30, lw=0)
-    axR.axvspan(h2[-1], x_end, color=COL["band"], alpha=0.14, lw=0)
-    axR.axvline(t_frz, color="0.30", ls=":", lw=1.2)
-    axR.axvline(h2[-1], color="0.30", ls=":", lw=1.0)
-    axR.annotate(f"$t$={t_frz:.0f} h：$R$ 首达 {R[i_frz]:.3f} cm\n"
-                 f"此后基本冻结（{t_frz:.0f}–{h2[-1]:.0f} h 仅 "
-                 f"{R[i_frz]:.3f}→{R[-1]:.3f} cm）",
-                 xy=(t_frz, R[i_frz]), xytext=(0.34, 0.62), textcoords="axes fraction",
-                 fontsize=8.4, ha="left", va="top",
-                 arrowprops=dict(arrowstyle="-|>", lw=0.9, color="0.30"),
-                 bbox=dict(boxstyle="round,pad=0.32", fc="white", ec="0.72", lw=0.6, alpha=0.94))
-    axR.annotate(f"附件2 截止 {h2[-1]:.0f} h\n"
-                 f"其后 {R[-1]:.3f} cm 末值平台延拓\n（问题4 求解用，声明假设）",
-                 xy=(h2[-1], R[-1]), xytext=(0.44, 0.30), textcoords="axes fraction",
-                 fontsize=8.4, ha="left", va="top",
-                 arrowprops=dict(arrowstyle="-|>", lw=0.9, color="0.30"),
-                 bbox=dict(boxstyle="round,pad=0.32", fc="white", ec="0.72", lw=0.6, alpha=0.94))
-    axR.axhline(R[-1], color="0.45", ls="-.", lw=0.9)
-    axR.text(97.5, R[-1] - 0.014, f"平台 {R[-1]:.3f} cm", ha="right", va="top",
-             fontsize=8.2, color="0.30")
+    # ---- (b) 附件2 半径 ----
+    axR.plot(h2, R, color=ROLE["data"], lw=1.5, label="附件2 实测 $R(t)$")
+    axR.plot([h2[-1], x_end], [R[-1]] * 2, color=ROLE["data"], ls="--", lw=1.1)
+    axR.axvspan(t_frz, h2[-1], color="0.93", lw=0, zorder=0)
+    axR.axvspan(h2[-1], x_end, color="0.96", lw=0, zorder=0)
+    axR.axvline(t_frz, color=ROLE["guide"], ls=":", lw=0.9)
+    axR.axvline(h2[-1], color=ROLE["guide"], ls=":", lw=0.7)
+    axR.axhline(R[-1], color=ROLE["guide"], ls=":", lw=0.9)
+    axR.annotate(f"$t$={t_frz:.0f} h：$R$ 首达 {R[i_frz]:.3f} cm\n此后基本冻结",
+                 xy=(t_frz, R[i_frz]), xytext=(0.30, 0.72), textcoords="axes fraction",
+                 fontsize=7.5, ha="left", va="top",
+                 arrowprops=dict(arrowstyle="-|>", lw=0.7, color="0.35"),
+                 bbox=dict(boxstyle="round,pad=0.26", fc="white", ec="0.80", lw=0.5, alpha=0.95))
+    axR.annotate(f"附件2 截止 {h2[-1]:.0f} h：\n{R[-1]:.3f} cm 平台延拓",
+                 xy=(h2[-1], R[-1]), xytext=(0.40, 0.33), textcoords="axes fraction",
+                 fontsize=7.5, ha="left", va="top",
+                 arrowprops=dict(arrowstyle="-|>", lw=0.7, color="0.35"),
+                 bbox=dict(boxstyle="round,pad=0.26", fc="white", ec="0.80", lw=0.5, alpha=0.95))
+    axR.text(98.0, R[-1] + 0.014, f"平台 {R[-1]:.3f} cm", ha="right", va="bottom",
+             fontsize=7.5, color="0.30")
     axR.set_xlim(0, x_end)
-    axR.set_ylim(1.16, 2.06)
+    axR.set_ylim(1.16, 2.10)
     axR.set_xlabel("时间 $t$ / h")
     axR.set_ylabel("药材半径 $R$ / cm")
-    axR.legend(loc="upper right", framealpha=0.92)
-    tile(axR, "(b) 附件2：半径收缩（回答：35 h 冻结后如何裁定）")
+    panel(axR, "(b)")
+    tile(axR, "附件2：半径收缩与冻结")
+
     print(f"  [F1] 附件1 {len(t1)} 点 0–{t_cut:.0f} h；附件2 {len(t2)} 点 0–{h2[-1]:.0f} h，"
-          f"R {R[0]:.3f}→{R[-1]:.3f} cm，冻结点 {t_frz:.0f} h", flush=True)
+          f"R {R[0]:.3f}→{R[-1]:.3f} cm，冻结点 {t_frz:.0f} h"
+          f"（{t_frz:.0f}–{h2[-1]:.0f} h 仅降 {R[i_frz]-R[-1]:.3f} cm）", flush=True)
     save(fig, "fig1_输入数据")
 
 
@@ -279,47 +527,44 @@ def fig2():
     order_row = [c for c in conv if c[head[0]] == "order(fit)"][0]
     orders = [float(order_row[h]) for h in head[1:]]
 
-    fig, ax = plt.subplots(figsize=(7.8, 5.2))
+    fig, ax = plt.subplots(figsize=(W_SINGLE, 3.2))
+    fig.subplots_adjust(left=0.135, right=0.975, top=0.875, bottom=0.17)
+    mk = ["o", "s", "^"]
     handles = []
     for k, ts in enumerate(t_show):
         col = TIME_CMAP(0.15 + 0.62 * k / max(len(t_show) - 1, 1))
         idx = int(np.where(times_arr == ts)[0][0])
-        ax.plot(r_dense * 100, T_ana[k], color=col, lw=1.8)
-        ax.plot(pos_cm, T_C[idx], ls="none", marker="o", ms=4.6, mfc="white",
-                mec=col, mew=1.3)
-        handles.append(Line2D([], [], color=col, marker="o", mfc="white", mec=col,
-                              label=f"$t$={ts} s"))
+        ax.plot(r_dense * 100, T_ana[k], color=col, lw=1.3, ls="-")
+        ax.plot(pos_cm, T_C[idx], ls="none", marker=mk[k], ms=3.6, mfc="white",
+                mec=col, mew=0.9)
+        handles.append(Line2D([], [], color=col, marker=mk[k], mfc="white", mec=col,
+                              lw=1.3, ms=3.6, label=f"$t$={ts} s"))
     ax.set_xlabel("到药材中心的距离 $r$ / cm")
     ax.set_ylabel("药材温度 $T$ / ℃")
     ax.set_xlim(0, 2.05)
-    ax.set_ylim(27.6, 39.6)
-    ax.legend(handles=handles, title="实线：解析解（特征展开）\n空心点：数值解（FV, $N$=320）",
-              loc="upper left", framealpha=0.94)
-    tile(ax, "问题1 温度场：解析解 vs 数值解（回答：可靠性如何证明）")
+    ax.set_ylim(27.4, 45.8)
+    style_axis(ax, grid="y")
+    ax.legend(handles=handles, loc="upper left", handlelength=1.8,
+              title="实线 解析解 / 空心点 数值解", title_fontsize=7.5)
+    panel(ax, "(a)", dx=-0.115)
+    tile(ax, "问题1 温度场：解析 vs 数值")
 
-    ins = ax.inset_axes([0.53, 0.285, 0.45, 0.315])
-    mk = ["s", "^", "o"]
+    ins = ax.inset_axes([0.415, 0.475, 0.565, 0.455])
     for k in range(errs.shape[1]):
         col = TIME_CMAP(0.15 + 0.62 * k / max(errs.shape[1] - 1, 1))
-        ins.loglog(Ns, errs[:, k], color=col, marker=mk[k], ms=4.0, lw=1.3,
-                   label=f"$t$={t_show[k]} s, 阶 {orders[k]:.3f}")
+        ins.loglog(Ns, errs[:, k], color=col, marker=mk[k], ms=3.0, lw=1.1,
+                   label=f"$t$={t_show[k]} s，阶 {orders[k]:.3f}")
     ref = errs[0, 0] * (Ns / Ns[0]) ** -2.0
-    ins.loglog(Ns, ref, color="0.45", ls="--", lw=1.1, label="斜率 −2（二阶参考）")
-    ins.set_xlabel("网格数 $N$", fontsize=8.0, labelpad=1.0)
-    ins.set_ylabel("最大偏差 / ℃", fontsize=8.0, labelpad=1.0)
-    ins.tick_params(labelsize=7.2, pad=1.5)
-    ins.grid(True, which="both", alpha=0.22, lw=0.5)
-    ins.legend(fontsize=7.0, loc="lower left", framealpha=0.92, handlelength=1.5)
-    ins.text(0.97, 0.95, "收敛性：偏差随 $N$", transform=ins.transAxes,
-             ha="right", va="top", fontsize=8.4)
-    fig.subplots_adjust(left=0.10, right=0.985, top=0.91, bottom=0.19)
-    fig.text(0.10, 0.055,
-             f"解析 vs 数值：$N$=320 时五位置逐点最大偏差 {dev_max:.2e} ℃"
-             "（v1_points_final.csv），远低于四位小数的分辨率 $5\\times10^{-5}$ ℃；"
-             f"偏差随 $N$ 单调下降且与 $N^{{-2}}$ 平行（插图：拟合阶 "
-             f"{orders[0]:.3f}/{orders[1]:.3f}/{orders[2]:.3f}，即二阶收敛）。",
-             fontsize=8.8, ha="left", va="top")
-    print(f"  [F2] 解析对拍最大偏差 {dev_max:.3e} ℃，收敛阶 {orders}", flush=True)
+    ins.loglog(Ns, ref, color=ROLE["guide"], ls="--", lw=1.0, label="斜率 −2（二阶参考）")
+    ins.set_xlabel("网格数 $N$", fontsize=7.5, labelpad=0.5)
+    ins.set_ylabel("最大偏差 / ℃", fontsize=7.5, labelpad=1.0)
+    ins.tick_params(labelsize=7.5, pad=1.5)
+    ins.grid(True, which="both", **GRID_KW)
+    ins.set_axisbelow(True)
+    ins.legend(loc="lower left", fontsize=7.5, handlelength=1.6, labelspacing=0.22,
+               borderpad=0.25)
+    print(f"  [F2] 解析对拍最大偏差 {dev_max:.3e} ℃（四位小数分辨率 5e-05 ℃，低 "
+          f"{5e-5/dev_max:.0f} 倍），收敛阶 {orders}", flush=True)
     save(fig, "fig2_问题1解析对拍")
 
 
@@ -340,57 +585,54 @@ def fig3():
     t_T = [0.1, 0.25, 0.5, 1.0, 2.0, 3.0]           # 预热平衡段（问题2 表3 的 3 h 内）
     t_C = [0.5, 3.0, 12.0, 24.0, 36.0, 57.0]        # 全程（问题3，至 t_f≈57.2 h）
 
-    fig, (axT, axC) = plt.subplots(1, 2, figsize=(11.6, 4.6))
-    fig.subplots_adjust(left=0.07, right=0.985, top=0.90, bottom=0.26, wspace=0.22)
+    fig, (axT, axC) = plt.subplots(1, 2, figsize=(W_DOUBLE, 3.4))
+    fig.subplots_adjust(left=0.082, right=0.982, top=0.865, bottom=0.155, wspace=0.26)
     legT, legC = [], []
     for k, h in enumerate(t_T):
         col = TIME_CMAP(0.95 - 0.80 * k / (len(t_T) - 1))
-        axT.plot(pos_cm, prof(T, h), color=col, lw=1.8)
-        legT.append(Line2D([], [], color=col, label=f"$t$={h:g} h"))
+        axT.plot(pos_cm, prof(T, h), color=col, lw=1.2)
+        legT.append(Line2D([], [], color=col, lw=1.2, label=f"$t$={h:g} h"))
     for k, h in enumerate(t_C):
         col = TIME_CMAP(0.10 + 0.80 * k / (len(t_C) - 1))
-        axC.plot(pos_cm, prof(C, h), color=col, lw=1.8)
-        legC.append(Line2D([], [], color=col, label=f"$t$={h:g} h"))
-    # 中心（r=0）标记：尾段拖长的直观证据
-    for k, h in enumerate(t_C):
+        axC.plot(pos_cm, prof(C, h), color=col, lw=1.2)
+        legC.append(Line2D([], [], color=col, lw=1.2, label=f"$t$={h:g} h"))
+    for k, h in enumerate(t_C):      # 中心（r=0）标记：尾段拖长的直观证据
         col = TIME_CMAP(0.10 + 0.80 * k / (len(t_C) - 1))
-        axC.plot([0], [prof(C, h)[0]], marker="o", ms=5.2, color=col, clip_on=False, zorder=5)
+        axC.plot([0], [prof(C, h)[0]], marker="o", ms=3.6, color=col, clip_on=False, zorder=5)
 
     Ta_end = float(T[-1].max())
     axT.set_xlabel("到药材中心的距离 $r$ / cm")
     axT.set_ylabel("药材温度 $T$ / ℃")
     axT.set_xlim(0, 2.02)
-    axT.set_ylim(28.0, 52.5)
-    axT.legend(handles=legT, loc="center left", bbox_to_anchor=(0.015, 0.34),
-               framealpha=0.95)
-    tile(axT, "(a) 温度剖面 $T(r,t)$：预热平衡 3 h 内即达准稳态")
+    axT.set_ylim(27.0, 58.5)
+    style_axis(axT, grid="y")
+    axT.legend(handles=legT, loc="upper left", ncol=2, handlelength=1.4,
+               columnspacing=1.0, labelspacing=0.28)
+    panel(axT, "(a)")
+    tile(axT, "温度剖面：3 h 内即准稳态")
 
     axC.set_xlabel("到药材中心的距离 $r$ / cm")
     axC.set_ylabel("水分浓度 $C$ / (kg/kg)")
     axC.set_xlim(0, 2.02)
-    axC.set_ylim(0.0, 2.72)
-    axC.axhline(TH, color=COL["th"], ls="--", lw=1.2)
-    axC.text(2.0, TH + 0.045, f"阈值 {TH} kg/kg", ha="right", va="bottom",
-             fontsize=8.2, color=COL["th"])
-    axC.legend(handles=legC, loc="upper right", framealpha=0.92)
+    axC.set_ylim(0.0, 3.15)
+    style_axis(axC, grid="y")
+    axC.axhline(TH, color=ROLE["guide"], ls="--", lw=1.1)
+    axC.text(2.0, TH + 0.15, f"阈值 {TH} kg/kg", ha="right", va="bottom",
+             fontsize=7.5, color="0.30")
+    axC.legend(handles=legC, loc="upper left", ncol=2, handlelength=1.4,
+               columnspacing=1.0, labelspacing=0.28)
     c36, c57 = prof(C, 36.0)[0], prof(C, 57.0)[0]
     cs57 = prof(C, 57.0)[-1]
     axC.annotate("中心最慢\n（$r$=0，尾段拖长）", xy=(0.02, 0.5 * (c36 + c57)),
-                 xytext=(0.20, 0.40), textcoords="axes fraction", fontsize=8.2,
+                 xytext=(0.13, 0.36), textcoords="axes fraction", fontsize=7.5,
                  ha="left", va="top",
-                 arrowprops=dict(arrowstyle="-|>", lw=0.9, color="0.30"))
-    tile(axC, "(b) 水分剖面 $C(r,t)$：中心最慢、尾段拖长")
-    fig.text(0.07, 0.115,
-             f"温度：$t\\gtrsim$1 h 后各时刻剖面迅速塌向水平（热场准稳态 $T\\approx T_a$，"
-             f"Le={le_txt}）；$t$={t_T[-1]:g} h 时全径仅 {Ta_end-0.4:.1f}–{Ta_end:.1f} ℃。",
-             fontsize=8.6, ha="left", va="top")
-    fig.text(0.07, 0.055,
-             f"水分：中心最慢——$t_f$={tf_h:.2f} h 时中心 {c57:.4f} 仍高于表面 {cs57:.4f}；"
-             f"尾段拖长——36→57 h（21 h）中心仅由 {c36:.4f} 降到 {c57:.4f}（差 {c36-c57:.4f}）。"
-             "左端圆点=中心值。",
-             fontsize=8.6, ha="left", va="top")
+                 arrowprops=dict(arrowstyle="-|>", lw=0.7, color="0.35"))
+    panel(axC, "(b)")
+    tile(axC, "水分剖面：中心最慢")
+
     print(f"  [F3] t_f={tf_h:.3f} h；中心 {c57:.4f} / 表面 {cs57:.4f}；36→57 h 中心降 "
-          f"{c36-c57:.4f}", flush=True)
+          f"{c36-c57:.4f}；Le={le_txt}；t={t_T[-1]:g} h 全径 {Ta_end-0.4:.1f}–{Ta_end:.1f} ℃",
+          flush=True)
     save(fig, "fig3_温湿剖面")
 
 
@@ -460,67 +702,58 @@ def fig4(no_cache=False):
     print(f"  [F4] 与结果总账.csv 一致：{ledger['q3']} / {ledger['q4']} h", flush=True)
 
     h3, h4, hc = t3 / 3600.0, t4 / 3600.0, tc / 3600.0
-    fig, ax = plt.subplots(figsize=(8.8, 5.4))
-    fig.subplots_adjust(left=0.09, right=0.985, top=0.92, bottom=0.24)
-    ax.plot(h3, um3, color=COL["q3"], lw=1.8,
+    fig, ax = plt.subplots(figsize=(W_SINGLE, 3.2))
+    fig.subplots_adjust(left=0.135, right=0.975, top=0.875, bottom=0.17)
+    ax.plot(h3, um3, color=ROLE["model2"], lw=1.3,
             label=f"问题3 主解（附3 + 固定 $R$）：$t_f$={tf3:.2f} h")
-    ax.plot(h4, um4, color=COL["q4"], lw=1.8,
+    ax.plot(h4, um4, color=ROLE["model"], lw=1.5,
             label=f"问题4 主解（附4 + $R(t)$）：$t_f$={tf4:.2f} h")
-    ax.plot(hc, umc, color=COL["ctrl"], lw=1.6, ls="-",
+    ax.plot(hc, umc, color=ROLE["ref"], lw=1.2, ls="--",
             label=f"对照：附4 + 固定 $R_0$：$t_f$={tfc:.2f} h")
-    ax.axhline(TH, color=COL["th"], ls="--", lw=1.3,
+    ax.axhline(TH, color=ROLE["guide"], ls="--", lw=1.1,
                label=f"达标阈值 $C_{{th}}$={TH} kg/kg（题目）")
-    ax.text(1.0, TH + 0.045, f"${TH}$", fontsize=8.4, color=COL["th"])
-    for lb, col in ((lb3, COL["q3"]), (lb4, COL["q4"])):
-        ax.axvline(lb, color=col, ls=":", lw=1.5)
-    for lb, col, txt, yf, yt in ((lb3, COL["q3"], f"问题3 严格下界 {lb3:.2f} h", 0.88, 1.95),
-                                 (lb4, COL["q4"], f"问题4 严格下界 {lb4:.2f} h", 0.79, 1.45)):
-        ax.annotate(txt, xy=(lb, yt), xytext=(0.175, yf), textcoords="axes fraction",
-                    fontsize=8.2, color=col, ha="left", va="top",
-                    arrowprops=dict(arrowstyle="-|>", lw=0.9, color=col))
-    for hh, col in ((tf3, COL["q3"]), (tf4, COL["q4"]), (tfc, COL["ctrl"])):
-        ax.axvline(hh, color=col, ls="-.", lw=0.9, alpha=0.85)
+    ax.text(1.0, TH + 0.05, f"${TH}$", fontsize=7.5, color="0.30")
+    for lb, col in ((lb3, ROLE["model2"]), (lb4, ROLE["model"])):
+        ax.axvline(lb, color=col, ls=":", lw=1.2)
+    for lb, col, txt, yf, yt in ((lb3, ROLE["model2"], f"问题3 严格下界 {lb3:.2f} h", 0.86, 1.95),
+                                 (lb4, ROLE["model"], f"问题4 严格下界 {lb4:.2f} h", 0.77, 1.42)):
+        ax.annotate(txt, xy=(lb, yt), xytext=(0.185, yf), textcoords="axes fraction",
+                    fontsize=7.5, color=col, ha="left", va="top",
+                    arrowprops=dict(arrowstyle="-|>", lw=0.7, color=col))
+    for hh, col in ((tf3, ROLE["model2"]), (tf4, ROLE["model"]), (tfc, ROLE["ref"])):
+        ax.axvline(hh, color=col, ls="-.", lw=0.8, alpha=0.85)
     ax.set_xlim(0, 134)
     ax.set_ylim(0, 2.62)
     ax.set_xlabel("烘干时间 $t$ / h")
     ax.set_ylabel(r"$\max_q U(q,t)$ / (kg/kg)")
-    ax.legend(loc="upper right", framealpha=0.94)
-    tile(ax, "问题3/4 达标穿越：最大水分浓度何时跌破 0.15（回答：$t_f$ 多少、收缩贡献多大）")
+    style_axis(ax, grid="y")
+    ax.legend(loc="upper right", handlelength=1.8, labelspacing=0.30)
+    panel(ax, "(a)", dx=-0.115)
+    tile(ax, "达标穿越：问题3 vs 问题4")
 
-    ins = ax.inset_axes([0.43, 0.335, 0.52, 0.375])
+    ins = ax.inset_axes([0.40, 0.20, 0.555, 0.36])
     lo, hi = min(tf4, tf3) - 5.0, max(tf4, tf3) + 4.0
-    for hh, uu, col, lab in ((h3, um3, COL["q3"], "问题3 主解"),
-                             (h4, um4, COL["q4"], "问题4 主解")):
+    for hh, uu, col, lab, sty in ((h3, um3, ROLE["model2"], "问题3 主解", "-"),
+                                  (h4, um4, ROLE["model"], "问题4 主解", "-")):
         m = (hh >= lo) & (hh <= hi)
-        ins.plot(hh[m], uu[m], color=col, lw=1.7, label=lab)
-    ins.axhline(TH, color=COL["th"], ls="--", lw=1.2)
+        ins.plot(hh[m], uu[m], color=col, lw=1.3, ls=sty, label=lab)
+    ins.axhline(TH, color=ROLE["guide"], ls="--", lw=1.0)
     ins.set_xlim(lo, hi)
     ins.set_ylim(0.1445, 0.1575)
-    ins.set_xlabel("$t$ / h", fontsize=8.2, labelpad=0.5)
-    ins.tick_params(labelsize=7.6, pad=1.5)
-    ins.grid(True, alpha=0.28, lw=0.5)
-    ins.text(0.03, 0.95, "穿越区间放大（$\\max_q U$ 单位：kg/kg）",
-             transform=ins.transAxes, fontsize=8.2, ha="left", va="top")
-    ins.annotate(f"$t_f$={tf3:.2f} h", xy=(tf3, TH), xytext=(tf3 + 0.4, 0.1462),
-                 fontsize=7.8, color=COL["q3"])
-    ins.annotate(f"$t_f$={tf4:.2f} h", xy=(tf4, TH), xytext=(tf4 - 4.2, 0.1462),
-                 fontsize=7.8, color=COL["q4"])
-    ins.legend(fontsize=7.4, loc="lower right", framealpha=0.92)
-    shrink, tot = tf_ctl_csv - tf4, tf3 - tf4
-    fig.text(0.09, 0.115,
-             f"效应拆分（T6，源 q4_split.csv）：对照「附4 + 固定 $R_0$」$t_f$={tf_ctl_csv:.2f} h；"
-             f"改用附3 物性（仍固定 $R_0$）降至 {tf3:.2f} h（{tf3-tf_ctl_csv:+.2f} h）；"
-             f"再改用真实收缩 $R(t)$ 降至 {tf4:.2f} h（{tf4-tf_ctl_csv:+.2f} h，"
-             f"占对照 {shrink/tf_ctl_csv*100:.1f}%）——收缩是问题4 的主导效应。",
-             fontsize=8.8, ha="left", va="top")
-    fig.text(0.09, 0.055,
-             f"严格下界（V3 闸门）：问题3 {lb3:.2f} h、问题4 {lb4:.2f} h"
-             "——$t_f$ 低于对应下界者必然错误；主解分别高出 "
-             f"{tf3-lb3:.2f} h / {tf4-lb4:.2f} h，闸门通过。"
-             "源：v3_bound.csv（t_lb_h）、q4_bound.csv（t_int_h）",
-             fontsize=8.8, ha="left", va="top")
+    ins.set_xlabel("$t$ / h", fontsize=7.5, labelpad=0.5)
+    ins.tick_params(labelsize=7.5, pad=1.5)
+    ins.grid(True, **GRID_KW)
+    ins.set_axisbelow(True)
+    ins.annotate(f"$t_f$={tf3:.2f} h", xy=(tf3, TH), xytext=(tf3 + 0.8, 0.1565),
+                 fontsize=7.5, color=ROLE["model2"], va="bottom")
+    ins.annotate(f"$t_f$={tf4:.2f} h", xy=(tf4, TH), xytext=(tf4 + 0.8, 0.1565),
+                 fontsize=7.5, color=ROLE["model"], va="bottom")
     print(f"  [F4] t_f: 问题3 {tf3:.4f} h / 问题4 {tf4:.4f} h / 附4固定R {tfc:.4f} h"
           f"（csv {tf_ctl_csv:.4f}）; 下界 {lb3:.4f} / {lb4:.4f} h", flush=True)
+    print(f"  [F4] 效应拆分（源 q4_split.csv）：对照 {tf_ctl_csv:.2f} h → 附3 物性 "
+          f"{tf3:.2f} h → 真实收缩 $R(t)$ {tf4:.2f} h（{tf4-tf_ctl_csv:+.2f} h，占对照 "
+          f"{(tf_ctl_csv-tf4)/tf_ctl_csv*100:.1f}%）；严格下界余量 {tf3-lb3:.2f} / "
+          f"{tf4-lb4:.2f} h（源 v3_bound.csv、q4_bound.csv）", flush=True)
     assert tf4 > lb4 and tf3 > lb3, "主解低于严格下界"
     save(fig, "fig4_达标穿越")
 
@@ -552,8 +785,9 @@ def fig5():
     bars = sorted([b for b in bars if abs(b[1]) > 1e-12], key=lambda x: abs(x[1]))
     _, budget = read_csv_rows("error_budget.csv")
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12.8, 4.8),
-                                   gridspec_kw=dict(width_ratios=[1.3, 1.0]))
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(W_DOUBLE, 4.15),
+                                   gridspec_kw=dict(height_ratios=[1.18, 1.0]))
+    fig.subplots_adjust(left=0.30, right=0.985, top=0.905, bottom=0.205, hspace=0.60)
     # 分两组：敏感性因素（≤3 条）+ 问题4 效应拆分归因（T6）
     grp1 = sorted([b for b in bars if not b[0].startswith("问题4效应拆分")],
                   key=lambda x: -x[1])
@@ -566,55 +800,56 @@ def fig5():
             cur -= 1.0                      # 组间留白
         ys.append(cur)
         cur -= 1.0
-    cols = [COL["pos"] if v > 0 else COL["neg"] for _, v, _ in shown]
-    ax1.barh(ys, [v for _, v, _ in shown], color=cols, height=0.60, zorder=3)
+    cols = [ROLE["ref"] if v > 0 else ROLE["model"] for _, v, _ in shown]
+    ax1.barh(ys, [v for _, v, _ in shown], color=cols, height=0.58, zorder=3)
     ax1.set_yticks(ys)
-    ax1.set_yticklabels([n for n, _, _ in shown], fontsize=8.6)
-    ax1.axvline(0, color="0.25", lw=1.0)
+    ax1.set_yticklabels([n for n, _, _ in shown], fontsize=7.5)
+    vals = [v for _, v, _ in shown]
+    x_lo = -14.0 if min(vals) < 0 else 0.0          # 无负向柱时轴从 0 起
+    ax1.axvline(0, color="0.25", lw=0.8)
     ax1.set_xlabel(r"$\Delta t_f$ / h（相对各自基准解）")
-    ax1.set_xlim(-14, 96)
-    ax1.set_ylim(min(ys) - 0.8, max(ys) + 1.5)
+    ax1.set_xlim(x_lo, 105)
+    ax1.set_ylim(min(ys) - 0.8, max(ys) + 2.0)
+    style_axis(ax1, grid="x")
     for y, (n, v, tf) in zip(ys, shown):
-        ax1.text(v + (2.0 if v > 0 else -2.0), y, f"{v:+.4f} h",
-                 va="center", ha="left" if v > 0 else "right", fontsize=8.2)
+        ax1.text(v + 2.0 if v > 0 else 1.0, y, f"{v:+.4f} h",
+                 va="center", ha="left", fontsize=7.5)
     div = 0.5 * (ys[len(grp1) - 1] + ys[len(grp1)])
-    ax1.axhline(div, color="0.55", lw=0.9, ls="--", zorder=1)
-    ax1.text(-13.4, ys[0] + 0.62, "敏感性因素", fontsize=8.8, color="0.25",
-             ha="left", va="bottom")
-    ax1.text(-13.4, div + 0.42, "问题4 效应拆分（T6 归因）", fontsize=8.8,
-             color="0.25", ha="left", va="bottom")
+    ax1.axhline(div, color="0.65", lw=0.8, ls="--", zorder=1)
+    ax1.text(103.0, ys[0] + 0.60, "敏感性因素", fontsize=7.5, color="0.25",
+             ha="right", va="bottom")
+    ax1.text(103.0, div, "问题4 效应拆分（T6 归因）", fontsize=7.5,
+             color="0.25", ha="right", va="center")
     ce = [b for b in grp1 if b[0].startswith("C_e")][0]
     others = sum(abs(b[1]) for b in grp1 if b is not ce)
-    ax1.annotate(f"$C_e$ 口径单因素 {ce[1]:+.2f} h，是其余敏感性因素之和"
-                 f"（{others:.2f} h）的 {abs(ce[1])/others:.0f} 倍\n"
-                 "即结论的最大不确定性来源",
-                 xy=(ce[1], ys[[b[0] for b in shown].index(ce[0])]),
-                 xytext=(0.985, 0.99), textcoords="axes fraction",
-                 fontsize=8.3, ha="right", va="top",
-                 arrowprops=dict(arrowstyle="-|>", lw=0.9, color="0.30"),
-                 bbox=dict(boxstyle="round,pad=0.32", fc="white", ec="0.72", lw=0.6, alpha=0.94))
-    note(ax1, f"基准行（$\\Delta t_f$=0，未画柱）：{'；'.join(b[0] for b in base)}；"
-              "红=偏晚、蓝=偏早", xy=(0.985, 0.01), ha="right", va="bottom", fs=7.8)
-    tile(ax1, "(a) 敏感性：各因素 $\\Delta t_f$（回答：结论有多稳）")
+    panel(ax1, "(a)")
+    tile(ax1, "敏感性：各因素 $\\Delta t_f$")
 
     mags = np.array([float(r["量级_h"]) for r in budget])
     typs = [r["类型"] for r in budget]
-    tcol = {"可收敛": "#1f6fb2", "口径依赖": "#e08a1e", "固有": "#8e44ad", "情景假设": "#c0392b"}
+    tcol = {"可收敛": ROLE["model"], "口径依赖": OI["orange"], "固有": ROLE["aux2"],
+            "情景假设": ROLE["ref"], "不含C_e口径": OI["grey"]}
     ys2 = np.arange(len(mags))[::-1]
     for y, m, tp in zip(ys2, mags, typs):
-        ax2.barh(y, m, color=tcol.get(tp, "0.5"), height=0.62, zorder=3)
-        ax2.text(m * 1.45, y, fmt_mag(m), va="center", fontsize=8.2)
+        ax2.barh(y, m, color=tcol.get(tp, "0.5"), height=0.60, zorder=3)
+        ax2.text(m * 1.45, y, fmt_mag(m), va="center", fontsize=7.5)
     ax2.set_yticks(ys2)
-    ax2.set_yticklabels([r["误差源"] for r in budget], fontsize=8.4)
+    ax2.set_yticklabels([r["误差源"] for r in budget], fontsize=7.5)
     ax2.set_xscale("log")
-    ax2.set_xlim(2e-7, 200)
+    ax2.set_xlim(2e-7, 300)
     ax2.set_xlabel("误差量级 / h（对数轴）")
-    ax2.legend(handles=[Patch(color=c, label=t) for t, c in tcol.items()],
-               loc="upper right", framealpha=0.92)
-    tile(ax2, "(b) 误差预算：各类误差量级（源 error_budget.csv）")
-    print(f"  [F5] 敏感性 {len(shown)} 条（基准 {len(base)} 条未画），"
-          f"主导 {ce[0]} {ce[1]:+.4f} h（其余敏感性因素合计 {others:.2f} h）；"
-          f"误差预算 {len(mags)} 条", flush=True)
+    style_axis(ax2, grid="x")
+    ax2.legend(handles=[Patch(color=c, label=t.replace("不含C_e口径", "不含C_e"))
+                        for t, c in tcol.items()],
+               loc="upper center", bbox_to_anchor=(0.30, -0.29), ncol=5,
+               handlelength=1.2, columnspacing=1.0, labelspacing=0.28)
+    panel(ax2, "(b)", dx=-0.10)
+    tile(ax2, "误差预算：各类误差量级")
+    fit_left(fig, (ax1, ax2))
+    print(f"  [F5] 敏感性 {len(shown)} 条（基准 {len(base)} 条未画："
+          f"{'；'.join(b[0] for b in base)}），红=偏晚、蓝=偏早；"
+          f"主导 {ce[0]} {ce[1]:+.4f} h 是其余敏感性因素之和（{others:.2f} h）的 "
+          f"{abs(ce[1])/others:.0f} 倍；误差预算 {len(mags)} 条", flush=True)
     save(fig, "fig5_敏感性")
 
 
@@ -677,93 +912,86 @@ def fig6():
     assert 15.0 < t_cross < 17.0, f"交叉点 {t_cross:.2f} h 与口径 16 h 不符"
     assert abs(dev_crust) < 5.0 and 8.0 < dfrz_crust < 15.0, (dev_crust, dfrz_crust)
 
-    fig, (axL, axR) = plt.subplots(1, 2, figsize=(12.4, 4.9))
-    fig.subplots_adjust(left=0.062, right=0.985, top=0.895, bottom=0.235, wspace=0.205)
+    fig, (axL, axR) = plt.subplots(1, 2, figsize=(W_DOUBLE, 3.8))
+    fig.subplots_adjust(left=0.088, right=0.985, top=0.865, bottom=0.155, wspace=0.24)
 
     # ---- 左：半径对比（附件2 vs 三条零拟合闭合）----
     for x0, x1 in ((0.0, H_SEG[0]), (H_SEG[0], H_SEG[1]), (H_SEG[1], h[-1])):
-        axL.axvspan(x0, x1, color=COL["band"], alpha=0.22, lw=0)
+        axL.axvspan(x0, x1, color="0.93", lw=0, zorder=0)
     for xb in H_SEG:
-        axL.axvline(xb, color="0.60", ls=":", lw=0.9, zorder=1)
-    axL.text(0.5 * H_SEG[0], 2.150, "A 急缩", ha="center", va="center",
-             fontsize=8.6, color="0.35")
-    axL.text(0.5 * H_SEG[0], 2.075, f"占全程 {share_A*100:.0f}%", ha="center",
-             va="center", fontsize=7.6, color="0.45")
-    axL.text(0.5 * (H_SEG[0] + H_SEG[1]), 2.150, "B 缓缩", ha="center", va="center",
-             fontsize=8.6, color="0.35")
-    axL.text(26.0, 2.150, "C 冻结", ha="center", va="center", fontsize=8.6, color="0.35")
-    axL.plot(h, R_att2, color=COL["th"], lw=2.4, zorder=5,
-             label=f"附件2 实测 $R(t)$（{len(t_s)} 点）")
-    axL.plot(h, R_ideal, color=COL["ideal"], ls="--", lw=1.6,
-             label=f"闭合1 全局理想收缩（无平台）：{R_ideal[-1]:.3f} cm")
-    axL.plot(h, R_crust, color=COL["crust"], lw=2.0,
-             label=f"闭合3' 理想+结皮停止（均值触发 $C_{{glass}}$={C_GLASS}）")
-    axL.plot(h, R_pore, color=COL["pore"], ls="-.", lw=1.6,
-             label=f"闭合5 成孔演化（骨架 $\\rho_{{sk}}$={RHO_SK:.0f}）：{R_pore[-1]:.3f} cm")
-    axL.axhline(R_plat, color=COL["th"], ls=":", lw=1.1)
-    axL.text(1.0, R_plat + 0.010, f"平台 {R_plat:.3f} cm", ha="left", va="bottom",
-             fontsize=8.2, color="0.30")
-    axL.annotate(f"早期塌陷：实测比理想少缩\n峰值超额 {exc[k_exc]:.3f} cm @ {h[k_exc]:.1f} h"
-                 f"（应变 {exc[k_exc]/R_att2[0]*100:.1f}%）",
+        axL.axvline(xb, color="0.72", ls=":", lw=0.8, zorder=1)
+    axL.text(0.5 * H_SEG[0], 2.115, "A 急缩", ha="center", va="center",
+             fontsize=7.5, color="0.30")
+    axL.text(0.5 * H_SEG[0], 2.040, f"占 {share_A*100:.0f}%", ha="center",
+             va="center", fontsize=7.5, color="0.40")
+    axL.text(0.5 * (H_SEG[0] + H_SEG[1]), 2.115, "B 缓缩", ha="center", va="center",
+             fontsize=7.5, color="0.30")
+    axL.text(26.0, 2.115, "C 冻结", ha="center", va="center", fontsize=7.5, color="0.30")
+    axL.plot(h, R_att2, color=ROLE["data"], lw=1.6, zorder=5,
+             label="附件2 实测 $R(t)$")
+    axL.plot(h, R_ideal, color=ROLE["ref"], ls="--", lw=1.2,
+             label="闭合1 全局理想")
+    axL.plot(h, R_crust, color=ROLE["model"], lw=1.5,
+             label="闭合3' 理想+结皮")
+    axL.plot(h, R_pore, color=ROLE["aux2"], ls="-.", lw=1.2,
+             label="闭合5 成孔演化")
+    axL.axhline(R_plat, color=ROLE["guide"], ls=":", lw=1.0)
+    axL.text(h[-1] - 1.0, R_plat + 0.014, f"平台 {R_plat:.3f} cm", ha="right", va="bottom",
+             fontsize=7.5, color="0.30")
+    axL.annotate(f"早期塌陷\n峰值超额 {exc[k_exc]:.3f} cm",
                  xy=(h[k_exc], 0.5 * (R_att2[k_exc] + R_ideal[k_exc])),
-                 xytext=(0.235, 0.455), textcoords="axes fraction",
-                 fontsize=8.2, ha="left", va="top",
-                 arrowprops=dict(arrowstyle="-|>", lw=0.9, color="0.30"),
-                 bbox=dict(boxstyle="round,pad=0.32", fc="white", ec="0.72", lw=0.6, alpha=0.94))
-    axL.annotate(f"后期结皮/成孔：收缩停滞\n（{R_crust[-1]:.3f} cm / 平台 {R_plat:.3f} cm，"
-                 f"冻结 {h_frz_crust:.1f} h vs {H_SEG[1]:g} h）",
-                 xy=(46.0, R_plat + 0.002), xytext=(0.30, 0.340), textcoords="axes fraction",
-                 fontsize=8.2, ha="left", va="top",
-                 arrowprops=dict(arrowstyle="-|>", lw=0.9, color="0.30"),
-                 bbox=dict(boxstyle="round,pad=0.32", fc="white", ec="0.72", lw=0.6, alpha=0.94))
+                 xytext=(0.20, 0.46), textcoords="axes fraction",
+                 fontsize=7.5, ha="left", va="top",
+                 arrowprops=dict(arrowstyle="-|>", lw=0.7, color="0.35"),
+                 bbox=dict(boxstyle="round,pad=0.26", fc="white", ec="0.80", lw=0.5, alpha=0.95))
+    axL.annotate(f"后期结皮/成孔\n平台 {R_crust[-1]:.3f} cm",
+                 xy=(46.0, R_plat + 0.002), xytext=(0.30, 0.30), textcoords="axes fraction",
+                 fontsize=7.5, ha="left", va="top",
+                 arrowprops=dict(arrowstyle="-|>", lw=0.7, color="0.35"),
+                 bbox=dict(boxstyle="round,pad=0.26", fc="white", ec="0.80", lw=0.5, alpha=0.95))
     axL.set_xlim(0, h[-1] + 2.0)
     axL.set_ylim(1.05, 2.22)
     axL.set_xlabel("烘干时间 $t$ / h")
     axL.set_ylabel("药材半径 $R$ / cm")
-    axL.legend(loc="upper right", framealpha=0.94)
-    tile(axL, "(a) 半径对比：附件2 vs 三条零拟合闭合（回答：能否结构性复现）")
+    style_axis(axL, grid="y")
+    axL.legend(loc="upper right", handlelength=1.4, labelspacing=0.26)
+    panel(axL, "(a)")
+    tile(axL, "半径对比：三条零拟合闭合")
 
     # ---- 右：交叉诊断（附件2 等效含水率 vs 模型平均含水率）----
-    axR.axvspan(0.0, t_cross, color=COL["pos"], alpha=0.06, lw=0)
-    axR.axvspan(t_cross, h[-1], color=COL["crust"], alpha=0.06, lw=0)
-    axR.axvline(t_cross, color=COL["pos"], ls=":", lw=1.2)
-    axR.plot(h, U_inf, color=COL["th"], lw=2.0, zorder=5,
-             label=r"附件2 等效含水率 $\bar U_{inf}(t)$（由 $R$ 反推）")
-    axR.plot(h, U_mod, color=COL["q3"], lw=1.8,
-             label=r"模型平均含水率 $\bar U_{model}(t)$（问题4 主解）")
-    axR.plot([t_cross], [u_cross], marker="o", ms=8.0, mfc="none", mec=COL["pos"],
-             mew=1.8, zorder=6)
+    axR.axvspan(0.0, t_cross, color=ROLE["ref"], alpha=0.05, lw=0)
+    axR.axvspan(t_cross, h[-1], color=ROLE["model"], alpha=0.05, lw=0)
+    axR.axvline(t_cross, color=ROLE["ref"], ls=":", lw=1.1)
+    axR.plot(h, U_inf, color=ROLE["data"], lw=1.4, zorder=5,
+             label=r"附件2 $\bar U_{inf}(t)$（由 $R$ 反推）")
+    axR.plot(h, U_mod, color=ROLE["model"], lw=1.3,
+             label=r"模型 $\bar U_{model}(t)$（问题4）")
+    axR.plot([t_cross], [u_cross], marker="o", ms=5.4, mfc="white", mec=ROLE["ref"],
+             mew=1.3, zorder=6)
     axR.annotate(f"交叉 ≈ {t_cross:.1f} h", xy=(t_cross, u_cross),
-                 xytext=(t_cross + 5.0, u_cross + 0.62), fontsize=8.6,
-                 color=COL["pos"], ha="left", va="bottom",
-                 arrowprops=dict(arrowstyle="-|>", lw=0.9, color=COL["pos"]),
-                 bbox=dict(boxstyle="round,pad=0.32", fc="white", ec="0.72", lw=0.6, alpha=0.94))
-    axR.text(1.5, 1.66, "附件2 更干：塌陷超额", ha="left", va="top",
-             fontsize=8.4, color=COL["pos"])
-    axR.text(0.5 * (t_cross + h[-1]), 1.66, "附件2 更湿：结皮/成孔", ha="center", va="top",
-             fontsize=8.4, color=COL["crust"])
+                 xytext=(t_cross + 3.0, u_cross + 0.50), fontsize=7.5,
+                 color=ROLE["ref"], ha="left", va="bottom",
+                 arrowprops=dict(arrowstyle="-|>", lw=0.7, color=ROLE["ref"]),
+                 bbox=dict(boxstyle="round,pad=0.26", fc="white", ec="0.80", lw=0.5, alpha=0.95))
+    axR.text(1.2, 2.05, "附件2 更干（塌陷）", ha="left", va="top",
+             fontsize=7.5, color=ROLE["ref"])
+    axR.text(38.0, 2.05, "附件2 更湿\n（结皮/成孔）", ha="left", va="top",
+             fontsize=7.5, color=ROLE["model"])
     axR.set_xlim(0, h[-1] + 2.0)
     axR.set_ylim(0.0, 2.78)
     axR.set_xlabel("烘干时间 $t$ / h")
     axR.set_ylabel(r"含水率 $\bar U$ / (kg/kg)")
-    axR.legend(loc="upper right", framealpha=0.94)
-    tile(axR, "(b) 交叉诊断：等效含水率 vs 模型平均含水率（回答：单机制为何不够）")
+    style_axis(axR, grid="y")
+    axR.legend(loc="upper right", handlelength=1.4, labelspacing=0.26)
+    panel(axR, "(b)")
+    tile(axR, "交叉诊断：等效 vs 模型含水率")
 
-    fig.text(0.062, 0.125,
-             f"左：附件2 三段形态（A 0–{H_SEG[0]:g} h 急缩占全程 {share_A*100:.0f}%；"
-             f"B {H_SEG[0]:g}–{H_SEG[1]:g} h 缓缩；C {H_SEG[1]:g} h 后平台 {R_plat:.3f} cm）；"
-             f"最接近的零拟合闭合「理想+结皮（均值触发）」平台 {R_crust[-1]:.3f} cm"
-             f"（{dev_crust:+.1f}%）、冻结 {h_frz_crust:.1f} h（{dfrz_crust:+.0f}%）。",
-             fontsize=8.6, ha="left", va="top")
-    fig.text(0.062, 0.058,
-             f"右：两者在 {t_cross:.1f} h 交叉——交叉前附件2 更干（力学塌陷）、交叉后更湿"
-             f"（结皮/成孔，缺口 {gap35:.3f}→{gap72:.3f} kg/kg @35→72 h）；两侧符号相反，"
-             r"单一单调 $R(\bar U)$ 映射在数学上不可能复现附件2。数字源 endogenous_shrinkage.csv。",
-             fontsize=8.6, ha="left", va="top")
     print(f"  [F6] 平台 {R_plat:.4f} cm；结皮闭合 {R_crust[-1]:.4f} cm（{dev_crust:+.2f}%）、"
-          f"冻结 {h_frz_crust:.1f} h（{dfrz_crust:+.1f}%）；理想闭合 {R_ideal[-1]:.4f} cm"
-          f"（{dev_ideal:+.1f}%）、成孔闭合 {R_pore[-1]:.4f} cm；"
-          f"超额峰值 {exc[k_exc]:.4f} cm @ {h[k_exc]:.1f} h；"
+          f"冻结 {h_frz_crust:.1f} h（{dfrz_crust:+.1f}%，口径分界 {H_SEG[1]:g} h）；"
+          f"理想闭合 {R_ideal[-1]:.4f} cm"
+          f"（{dev_ideal:+.1f}%）、成孔闭合 {R_pore[-1]:.4f} cm（骨架 {RHO_SK:.0f}）；"
+          f"超额峰值 {exc[k_exc]:.4f} cm @ {h[k_exc]:.1f} h（应变 "
+          f"{exc[k_exc]/R_att2[0]*100:.1f}%）；C_glass={C_GLASS}；"
           f"交叉 {t_cross:.2f} h；缺口 {gap35:.4f}→{gap72:.4f} kg/kg", flush=True)
     save(fig, "fig6_收缩机制分析")
 
@@ -784,12 +1012,30 @@ def main():
             fig4(no_cache=a.no_cache)
         else:
             FIGS[k]()
+
+    print("\n[审计汇总] 图 | 设计尺寸(in) | 纵横比 | 最小字号(pt) | 标题≤28 | 图例项 | 刻度重叠 | "
+          "柱基线 | 裁切文字 | 图内文字块 | colorbar | 3D | 嵌入位图 | 密集标记 | 结论")
+    for r in AUDIT:
+        print(f"  {r['stem']:<22} {r['w']:.1f}×{r['h']:.1f} | {r['aspect']:.2f} | "
+              f"{r['min_font']:.1f} | {max((len(t) for t in r['titles']), default=0)} | "
+              f"{r['legends']} | {len(r['tick_bad'])} | {len(r['bar_base'])} | "
+              f"{len(r['clipped'])} | {len(r['figtext'])} | {r['cb']} | "
+              f"{r['ax3d']} | {r['embed_img']} | {r['dense_marker']} | "
+              f"{'PASS' if r['ok'] else 'FAIL'}", flush=True)
+    bad = [r for r in AUDIT if not r["ok"]]
     if GLYPH.msgs:
         print("[字体] 缺字告警如下（应视为失败）：", flush=True)
         for m in GLYPH.msgs:
             print("   ", m, flush=True)
+    else:
+        print("[字体] 无缺字告警（logging + warnings 双通道）；PDF 嵌入 TrueType 子集"
+              "（pdf.fonttype=42）", flush=True)
+    print(f"[灰度] 灰度预览见 05-图表/_qa/*_gray.png（逐张目视核对“不靠颜色可区分”）", flush=True)
+    if GLYPH.msgs or bad:
+        print(f"[门禁] FAIL：缺字 {len(GLYPH.msgs)} 条，审计不合格 {len(bad)} 张 "
+              f"({', '.join(r['stem'] for r in bad)})", flush=True)
         sys.exit(1)
-    print("[字体] 无缺字告警；PDF 为嵌入 TrueType 子集（pdf.fonttype=42）", flush=True)
+    print("[门禁] PASS：6 项审计全部通过", flush=True)
 
 
 if __name__ == "__main__":
