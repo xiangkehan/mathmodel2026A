@@ -12,9 +12,13 @@
         v3_bound.csv、sensitivity.csv、结果总账.csv；附4固定R对照曲线由 solver_q4 现算
         （与 q4_split.csv 的 appendix4_fixedR 逐次核对）
   fig5  sensitivity.csv、error_budget.csv
+  fig6  endogenous_shrinkage.csv（附件2 时刻网格上的各闭合 R_pred、Ū_model、Ū_inf）；
+        缺列时回退 附件2.xlsx、q4_main_steps.npz（见 03-数据/内生收缩分析.md）
 
 口径常数（非结果数字，仅用于画线/判定，来源已注明）：
   TH = 0.15 kg/kg  —— 题目问题 3 原文“水分浓度应低于 0.15 kg/kg”
+  fig6 H_SEG / C_GLASS / RHO_SK —— 附件2 三段分界、玻璃化含水率、骨架密度，
+    来源 03-数据/内生收缩分析.md §0–§1（图内所有半径/含水率/交叉点数字仍从数据读出）
   其余全部数字（含 35 h 冻结点、严格下界）均从上述数据文件读出，脚本内不誊写结果。
 """
 from __future__ import annotations
@@ -61,6 +65,9 @@ COL = dict(
     neg="#1f6fb2",     # 负偏差
     zero="#9aa0a6",
     band="#b8c4d0",
+    ideal="#7f8c8d",   # fig6 基线闭合：全局理想收缩（无平台）
+    crust="#2e8b57",   # fig6 零拟合闭合：理想 + 结皮停止（均值触发）
+    pore="#8e44ad",    # fig6 零拟合闭合：成孔/孔隙率演化（骨架口径）
 )
 
 RC = {
@@ -580,7 +587,7 @@ def fig5():
     others = sum(abs(b[1]) for b in grp1 if b is not ce)
     ax1.annotate(f"$C_e$ 口径单因素 {ce[1]:+.2f} h，是其余敏感性因素之和"
                  f"（{others:.2f} h）的 {abs(ce[1])/others:.0f} 倍\n"
-                 "⇒ 结论的最大不确定性来源",
+                 "即结论的最大不确定性来源",
                  xy=(ce[1], ys[[b[0] for b in shown].index(ce[0])]),
                  xytext=(0.985, 0.99), textcoords="axes fraction",
                  fontsize=8.3, ha="right", va="top",
@@ -611,7 +618,157 @@ def fig5():
     save(fig, "fig5_敏感性")
 
 
-FIGS = {"fig1": fig1, "fig2": fig2, "fig3": fig3, "fig5": fig5}
+# ====================== F6 收缩机制分析 ======================
+def fig6():
+    """附件2 收缩曲线是“多机制复合”的诊断：三条零拟合闭合 vs 附件2（不改主模型）。
+
+    数字全部读自 03-数据/endogenous_shrinkage.csv（附件2 时刻网格上的各闭合 R_pred）；
+    缺列时按 03-数据/内生收缩分析.md 的口径回退到 附件2.xlsx / q4_main_steps.npz。
+    """
+    from solver_q1 import C0, R0        # 初始干基含水率 kg/kg / 初始半径 m（题目物性）
+
+    head, rows = read_csv_rows("endogenous_shrinkage.csv")
+    t_s = np.array([float(r["t_s"]) for r in rows])
+    h = t_s / 3600.0
+
+    def pick(name):
+        return np.array([float(r[name]) for r in rows]) if name in head else None
+
+    R_att2 = pick("R_att2_cm")
+    if R_att2 is None:
+        _, R_att2 = read_att2()
+    U_inf = pick("U_inferred_att2")
+    if U_inf is None:                       # 等容失水反推（内生收缩分析.md §0）
+        U_inf = (1.0 + C0) * (R_att2 / (R0 * 100.0)) ** 2 - 1.0
+    U_mod = pick("U_mean_model")
+    if U_mod is None:                       # 回退：问题4 主解步记录
+        d4 = np.load(DATA_DIR / "q4_main_steps.npz")
+        U_mod = np.interp(t_s, d4["t"], d4["um"])
+    R_ideal, R_crust, R_pore = (pick("R1_ideal_mean_cm"), pick("R3b_crust_mean_cm"),
+                                pick("R5_pore_cm"))
+    miss = [n for n, v in (("R_att2_cm", R_att2), ("U_inferred_att2", U_inf),
+                           ("U_mean_model", U_mod), ("R1_ideal_mean_cm", R_ideal),
+                           ("R3b_crust_mean_cm", R_crust), ("R5_pore_cm", R_pore))
+            if v is None]
+    assert not miss, f"endogenous_shrinkage.csv 缺列（且无回退）: {miss}"
+
+    # ---- 口径常数（非计算结果；来源：03-数据/内生收缩分析.md）----
+    H_SEG = (3.5, 21.0)     # §0 附件2 三段形态：A/B、B/C 分界（h）
+    C_GLASS = 0.21          # §1 闭合3 玻璃化转变含水率（Gordon–Taylor 反解）kg/kg
+    RHO_SK = 1468.0         # §1 闭合5 骨架密度（文献值）kg/m³
+
+    R_plat = float(R_att2[-1])                      # 附件2 末值平台（1.198 cm）
+    dev_crust = (R_crust[-1] - R_plat) / R_plat * 100.0
+    dev_ideal = (R_ideal[-1] - R_plat) / R_plat * 100.0
+    k_frz = int(np.argmax(np.abs(np.diff(R_crust)) < 1e-12))
+    h_frz_crust = float(h[k_frz + 1])               # 结皮闭合冻结时刻（23.5 h）
+    dfrz_crust = (h_frz_crust - H_SEG[1]) / H_SEG[1] * 100.0
+    i_segA = int(np.argmin(np.abs(h - H_SEG[0])))
+    share_A = (R_att2[0] - R_att2[i_segA]) / (R_att2[0] - R_plat)
+    exc = R_ideal - R_att2                          # 塌陷超额（附件2 少缩的部分）
+    k_exc = int(np.argmax(exc))
+    gap = U_inf - U_mod                             # 成孔缺口
+    gap35 = float(np.interp(35.0, h, gap))
+    gap72 = float(np.interp(72.0, h, gap))
+    i_c = next(i for i in range(1, len(gap)) if gap[i] > 0 > gap[i - 1])
+    t_cross = float(h[i_c - 1] + (0.0 - gap[i_c - 1]) * (h[i_c] - h[i_c - 1])
+                    / (gap[i_c] - gap[i_c - 1]))
+    u_cross = float(np.interp(t_cross, h, U_mod))
+    assert 15.0 < t_cross < 17.0, f"交叉点 {t_cross:.2f} h 与口径 16 h 不符"
+    assert abs(dev_crust) < 5.0 and 8.0 < dfrz_crust < 15.0, (dev_crust, dfrz_crust)
+
+    fig, (axL, axR) = plt.subplots(1, 2, figsize=(12.4, 4.9))
+    fig.subplots_adjust(left=0.062, right=0.985, top=0.895, bottom=0.235, wspace=0.205)
+
+    # ---- 左：半径对比（附件2 vs 三条零拟合闭合）----
+    for x0, x1 in ((0.0, H_SEG[0]), (H_SEG[0], H_SEG[1]), (H_SEG[1], h[-1])):
+        axL.axvspan(x0, x1, color=COL["band"], alpha=0.22, lw=0)
+    for xb in H_SEG:
+        axL.axvline(xb, color="0.60", ls=":", lw=0.9, zorder=1)
+    axL.text(0.5 * H_SEG[0], 2.150, "A 急缩", ha="center", va="center",
+             fontsize=8.6, color="0.35")
+    axL.text(0.5 * H_SEG[0], 2.075, f"占全程 {share_A*100:.0f}%", ha="center",
+             va="center", fontsize=7.6, color="0.45")
+    axL.text(0.5 * (H_SEG[0] + H_SEG[1]), 2.150, "B 缓缩", ha="center", va="center",
+             fontsize=8.6, color="0.35")
+    axL.text(26.0, 2.150, "C 冻结", ha="center", va="center", fontsize=8.6, color="0.35")
+    axL.plot(h, R_att2, color=COL["th"], lw=2.4, zorder=5,
+             label=f"附件2 实测 $R(t)$（{len(t_s)} 点）")
+    axL.plot(h, R_ideal, color=COL["ideal"], ls="--", lw=1.6,
+             label=f"闭合1 全局理想收缩（无平台）：{R_ideal[-1]:.3f} cm")
+    axL.plot(h, R_crust, color=COL["crust"], lw=2.0,
+             label=f"闭合3' 理想+结皮停止（均值触发 $C_{{glass}}$={C_GLASS}）")
+    axL.plot(h, R_pore, color=COL["pore"], ls="-.", lw=1.6,
+             label=f"闭合5 成孔演化（骨架 $\\rho_{{sk}}$={RHO_SK:.0f}）：{R_pore[-1]:.3f} cm")
+    axL.axhline(R_plat, color=COL["th"], ls=":", lw=1.1)
+    axL.text(1.0, R_plat + 0.010, f"平台 {R_plat:.3f} cm", ha="left", va="bottom",
+             fontsize=8.2, color="0.30")
+    axL.annotate(f"早期塌陷：实测比理想少缩\n峰值超额 {exc[k_exc]:.3f} cm @ {h[k_exc]:.1f} h"
+                 f"（应变 {exc[k_exc]/R_att2[0]*100:.1f}%）",
+                 xy=(h[k_exc], 0.5 * (R_att2[k_exc] + R_ideal[k_exc])),
+                 xytext=(0.235, 0.455), textcoords="axes fraction",
+                 fontsize=8.2, ha="left", va="top",
+                 arrowprops=dict(arrowstyle="-|>", lw=0.9, color="0.30"),
+                 bbox=dict(boxstyle="round,pad=0.32", fc="white", ec="0.72", lw=0.6, alpha=0.94))
+    axL.annotate(f"后期结皮/成孔：收缩停滞\n（{R_crust[-1]:.3f} cm / 平台 {R_plat:.3f} cm，"
+                 f"冻结 {h_frz_crust:.1f} h vs {H_SEG[1]:g} h）",
+                 xy=(46.0, R_plat + 0.002), xytext=(0.30, 0.340), textcoords="axes fraction",
+                 fontsize=8.2, ha="left", va="top",
+                 arrowprops=dict(arrowstyle="-|>", lw=0.9, color="0.30"),
+                 bbox=dict(boxstyle="round,pad=0.32", fc="white", ec="0.72", lw=0.6, alpha=0.94))
+    axL.set_xlim(0, h[-1] + 2.0)
+    axL.set_ylim(1.05, 2.22)
+    axL.set_xlabel("烘干时间 $t$ / h")
+    axL.set_ylabel("药材半径 $R$ / cm")
+    axL.legend(loc="upper right", framealpha=0.94)
+    tile(axL, "(a) 半径对比：附件2 vs 三条零拟合闭合（回答：能否结构性复现）")
+
+    # ---- 右：交叉诊断（附件2 等效含水率 vs 模型平均含水率）----
+    axR.axvspan(0.0, t_cross, color=COL["pos"], alpha=0.06, lw=0)
+    axR.axvspan(t_cross, h[-1], color=COL["crust"], alpha=0.06, lw=0)
+    axR.axvline(t_cross, color=COL["pos"], ls=":", lw=1.2)
+    axR.plot(h, U_inf, color=COL["th"], lw=2.0, zorder=5,
+             label=r"附件2 等效含水率 $\bar U_{inf}(t)$（由 $R$ 反推）")
+    axR.plot(h, U_mod, color=COL["q3"], lw=1.8,
+             label=r"模型平均含水率 $\bar U_{model}(t)$（问题4 主解）")
+    axR.plot([t_cross], [u_cross], marker="o", ms=8.0, mfc="none", mec=COL["pos"],
+             mew=1.8, zorder=6)
+    axR.annotate(f"交叉 ≈ {t_cross:.1f} h", xy=(t_cross, u_cross),
+                 xytext=(t_cross + 5.0, u_cross + 0.62), fontsize=8.6,
+                 color=COL["pos"], ha="left", va="bottom",
+                 arrowprops=dict(arrowstyle="-|>", lw=0.9, color=COL["pos"]),
+                 bbox=dict(boxstyle="round,pad=0.32", fc="white", ec="0.72", lw=0.6, alpha=0.94))
+    axR.text(1.5, 1.66, "附件2 更干：塌陷超额", ha="left", va="top",
+             fontsize=8.4, color=COL["pos"])
+    axR.text(0.5 * (t_cross + h[-1]), 1.66, "附件2 更湿：结皮/成孔", ha="center", va="top",
+             fontsize=8.4, color=COL["crust"])
+    axR.set_xlim(0, h[-1] + 2.0)
+    axR.set_ylim(0.0, 2.78)
+    axR.set_xlabel("烘干时间 $t$ / h")
+    axR.set_ylabel(r"含水率 $\bar U$ / (kg/kg)")
+    axR.legend(loc="upper right", framealpha=0.94)
+    tile(axR, "(b) 交叉诊断：等效含水率 vs 模型平均含水率（回答：单机制为何不够）")
+
+    fig.text(0.062, 0.125,
+             f"左：附件2 三段形态（A 0–{H_SEG[0]:g} h 急缩占全程 {share_A*100:.0f}%；"
+             f"B {H_SEG[0]:g}–{H_SEG[1]:g} h 缓缩；C {H_SEG[1]:g} h 后平台 {R_plat:.3f} cm）；"
+             f"最接近的零拟合闭合「理想+结皮（均值触发）」平台 {R_crust[-1]:.3f} cm"
+             f"（{dev_crust:+.1f}%）、冻结 {h_frz_crust:.1f} h（{dfrz_crust:+.0f}%）。",
+             fontsize=8.6, ha="left", va="top")
+    fig.text(0.062, 0.058,
+             f"右：两者在 {t_cross:.1f} h 交叉——交叉前附件2 更干（力学塌陷）、交叉后更湿"
+             f"（结皮/成孔，缺口 {gap35:.3f}→{gap72:.3f} kg/kg @35→72 h）；两侧符号相反，"
+             r"单一单调 $R(\bar U)$ 映射在数学上不可能复现附件2。数字源 endogenous_shrinkage.csv。",
+             fontsize=8.6, ha="left", va="top")
+    print(f"  [F6] 平台 {R_plat:.4f} cm；结皮闭合 {R_crust[-1]:.4f} cm（{dev_crust:+.2f}%）、"
+          f"冻结 {h_frz_crust:.1f} h（{dfrz_crust:+.1f}%）；理想闭合 {R_ideal[-1]:.4f} cm"
+          f"（{dev_ideal:+.1f}%）、成孔闭合 {R_pore[-1]:.4f} cm；"
+          f"超额峰值 {exc[k_exc]:.4f} cm @ {h[k_exc]:.1f} h；"
+          f"交叉 {t_cross:.2f} h；缺口 {gap35:.4f}→{gap72:.4f} kg/kg", flush=True)
+    save(fig, "fig6_收缩机制分析")
+
+
+FIGS = {"fig1": fig1, "fig2": fig2, "fig3": fig3, "fig5": fig5, "fig6": fig6}
 
 
 def main():
@@ -620,7 +777,7 @@ def main():
     ap.add_argument("--no-cache", action="store_true", help="fig4 对照曲线强制重算")
     a = ap.parse_args()
     plt.rcParams.update(RC)
-    want = a.only or ["fig1", "fig2", "fig3", "fig4", "fig5"]
+    want = a.only or ["fig1", "fig2", "fig3", "fig4", "fig5", "fig6"]
     for k in want:
         print(f"[{k}] 作图 …", flush=True)
         if k == "fig4":
