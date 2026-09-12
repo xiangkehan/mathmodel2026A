@@ -153,3 +153,54 @@ mv 09-归档/08-临时/*.py 08-临时/
 ```
 
 本清单文件 `09-归档\MANIFEST.md` 不属于被归档的 71 个文件，还原时按需保留或删除。
+
+
+---
+
+## 五、第二批归档（2026-09-12）
+
+**归档日期**：2026-09-12
+**归档原因**：力学驱动收缩模型共三代——「A 级阶段（线性检验本构 `p_c=p*(1−S)`）→ 力学核查修热通量 bug（van Genuchten 本构）→ 重标定（幂律保水本构 `p_c=p*(1−S)/S^β`，**现行**）」。前两代的数据产物已全部被 `03-数据/mechRefit.csv`、`03-数据/mechRefit_fields.npz` 与笔记 `03-数据/力学升级_重标定.md`（修 bug 阶段见 `03-数据/力学核查.md`）取代，归档备查、可随时还原。
+**归档数量**：11 个文件（`03-数据/` 8 个 + `08-临时/` 2 个 + `06-论文/` 1 个）＝ 5 个 git 跟踪文件（用 `git mv`）+ 6 个未跟踪文件（用普通 `mv`）。
+
+| 文件 | 原路径 | 归档原因 |
+| --- | --- | --- |
+| `mechA_degradation.csv` | `03-数据/` | A 级（线性检验本构）7 条退化检查表，已被重标定阶段的退化检查取代。 |
+| `mechA_scenarios.csv` | `03-数据/` | A 级 Π_c×Π_τ 情景扫描表（线性本构情景族，RMSE 0.30–0.72 cm），情景族本身已被放弃。 |
+| `mechA_fields_central.npz` | `03-数据/` | A 级中央情景（Π_c=1、Π_τ=1）全程场量。 |
+| `run_mech_A.log` | `03-数据/` | 上述 A 级扫描的运行日志。 |
+| `mechA_scenarios.png` | `08-临时/` | A 级情景三联图（R(t) 情景 / g 轨迹 / De 诊断），内容已由重标定版图 `05-图表/fig10_力学升级.*` 取代。 |
+| `mechMain_fit.csv` | `03-数据/` | 力学核查阶段主线拟合（van Genuchten 本构，`q_pow≈0.15`）的 R(t) 拟合与残差（145 点）。 |
+| `mechMain_validation.csv` | `03-数据/` | 上述主线拟合的参数/验证表（`p_star`、`q_pow` 等）。 |
+| `mechMain_fields.npz` | `03-数据/` | 上述主线模型的全程场量。 |
+| `run_mech_mainline.log` | `03-数据/` | 上述主线拟合的运行日志。 |
+| `mechMain_fit.png` | `08-临时/` | 上述主线拟合图。 |
+| `fix_backslash.py` | `06-论文/` | 一次性 LaTeX 反斜杠修复脚本，已应用完毕，论文构建不再需要。 |
+
+### 现行替代物（写论文/复现请用这些）
+
+- **数据**：`03-数据/mechRefit.csv`（145 点 `R_data_cm`/`R_pred_cm`/`residual_mm`）、`03-数据/mechRefit_fields.npz`（重标定参数 `fit_params`、全程 `Um`/`DeS`/`gS`、末端平衡表 `terminal`）。
+- **口径与结论**：`03-数据/力学升级_重标定.md`（现行：幂律吸力重标定，RMSE 0.502 mm、平台 1.1751 vs 1.198 cm、$t_f$=51.17 h）；`03-数据/力学核查.md`（修热通量 bug 阶段的核查记录，仍被引用）。
+- **图**：`05-图表/fig10_力学升级.pdf|.png`（重标定拟合三联图）。
+- **⚠ 三个脚本仍是活依赖，留在 `03-数据/` 未归档**：`run_mech_refit.py` → import `run_mech_mainline.py` → import `run_mech_A.py`（活 import 链），移动会断链。另 `03-数据/probe_b.log` 被 `力学核查.md` 引用，同样保留未动。
+
+### 还原方法
+
+把本目录下的文件按上表「原路径」移回即可（文件名未做任何改动，内容未做任何修改）：
+
+```bash
+cd "C:/Project/数学建模2026/数学建模2026/A"
+git mv 09-归档/03-数据-力学旧阶段/mechA_degradation.csv 03-数据/
+git mv 09-归档/03-数据-力学旧阶段/mechA_scenarios.csv 03-数据/
+git mv 09-归档/03-数据-力学旧阶段/mechMain_fit.csv 03-数据/
+git mv 09-归档/03-数据-力学旧阶段/mechMain_validation.csv 03-数据/
+mv 09-归档/03-数据-力学旧阶段/mechA_fields_central.npz 03-数据/
+mv 09-归档/03-数据-力学旧阶段/mechMain_fields.npz 03-数据/
+mv 09-归档/03-数据-力学旧阶段/run_mech_A.log 03-数据/
+mv 09-归档/03-数据-力学旧阶段/run_mech_mainline.log 03-数据/
+mv 09-归档/03-数据-力学旧阶段/mechA_scenarios.png 08-临时/
+mv 09-归档/03-数据-力学旧阶段/mechMain_fit.png 08-临时/
+git mv 09-归档/06-论文/fix_backslash.py 06-论文/
+```
+
+（已跟踪文件用 `git mv` 归档，挪回时也可用 `git mv` 让 git 记为改名。）
