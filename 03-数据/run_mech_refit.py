@@ -1,7 +1,8 @@
-"""run_mech_refit.py：热通量修正后的重标定（扩展 β 下界）+ 结构性上限分析。
+"""run_mech_refit.py：A04（热算子）+A05（Z 推进）修复后的重标定 + 结构性上限分析。
 
 用法：python run_mech_refit.py
-依据：03-数据/力学核查.md（热通量修正）；03-数据/力学升级_主线.md（原版拟合）。
+依据：other/论文审计意见-de5b9ab-20260912.md（A04/A05）；
+     03-数据/力学升级_修复重标定.md（本脚本产出笔记）。
 """
 from __future__ import annotations
 
@@ -59,7 +60,7 @@ def terminal_J(beta, w_end=0.0128, s0=0.1743):
 def main():
     t_start = time.perf_counter()
     print("=" * 64, flush=True)
-    print("[重标定] 修正后求解器，β 下界扩展至 0.02，多起点 …", flush=True)
+    print("[重标定] A04 热算子 + A05 Z 推进修复后求解器，β 下界 0.02，多起点 …", flush=True)
     best = None
     for x0 in ([1.0, 0.15, 0.0, 0.1], [0.5, 0.05, 0.0, 0.5],
                [2.0, 0.5, -1.0, 4.0], [1.5, 0.08, -1.0, 2.0]):
@@ -76,7 +77,7 @@ def main():
     print(f"[重标定] 最优: p*={p_star:.4g}, β={beta:.4f}, Π_τ={Pi_tau:.4g}, "
           f"τexp={tau_exp:.4f}, RMSE={rm_fit*1000:.3f} mm", flush=True)
 
-    print("[生产] 拟合参数全程运行（dt=600 s）…", flush=True)
+    print("[生产] 拟合参数全程运行（dt=600 s，积分到 72 h，不首次达标即停）…", flush=True)
     P = P_fit(p_star, beta, Pi_tau, tau_exp)
     out = coupled_run(P, t_att[-1], dt=600.0, M=16, detect=True)
     Rp = np.interp(t_att, out["t"], out["R"])
@@ -88,9 +89,23 @@ def main():
           f"lag-1={lag1:.3f}", flush=True)
     print(f"       分段: 急缩 {seg_err(Rp,0,3.5*3600)*1000:.3f} / 缓缩 {seg_err(Rp,3.5*3600,21*3600)*1000:.3f}"
           f" / 平台 {seg_err(Rp,21*3600,1e12)*1000:.3f} mm", flush=True)
+    tc = out["cross"]
+    t_f_h = tc[1] / 3600 if tc else float("nan")
+    if tc:
+        w1 = t_att <= tc[0]
+        w2 = t_att >= tc[1]
+        print(f"       首次达标 t_f = {t_f_h:.4f} h（区间 [{tc[0]/3600:.2f},{tc[1]/3600:.2f}] h）；"
+              f"误差分窗: 0–达标 {np.sqrt(np.mean(res[w1]**2))*1000:.3f} / "
+              f"达标–72h {np.sqrt(np.mean(res[w2]**2))*1000:.3f} / 全程 {rmse*1000:.3f} mm",
+              flush=True)
+    i60 = int(np.argmin(np.abs(out["t"] - 60 * 3600)))
     print(f"       平台: pred {Rp[-1]*100:.4f} vs data {R_att[-1]*100:.3f} cm；"
-          f"t_f = {out['cross'][1]/3600:.4f} h（半经验 50.5369 / 附件2外生 50.82 h）", flush=True)
-    print(f"       g_min = {out['gmin'].min():.4f}", flush=True)
+          f"R(60h)={out['R'][i60]*100:.4f} → R(72h)={out['R'][-1]*100:.4f} cm"
+          f"（72h 内再降 {(out['R'][i60]-out['R'][-1])*1000:.2f} mm，"
+          f"{'平台保持' if out['R'][i60]-out['R'][-1] < 0.001 else '末端仍在收缩'}）；"
+          f"t_f 对照 半经验 50.5369 / 附件2外生 50.82 h", flush=True)
+    print(f"       g_min = {out['gmin'].min():.4f}；牛顿未收敛步数 = {out['newton_fail']}，"
+          f"最大平衡残差 = {out['max_res']:.2e}", flush=True)
 
     print("[退化] 7 条退化检查 …", flush=True)
     dg = degradation(P)
@@ -150,7 +165,8 @@ def main():
     np.savez(HERE / "mechRefit_fields.npz", t=out["t"], R=out["R"], Um=out["Um"],
              DeS=out["DeS"], gS=out["gS"], X=out["X"], r=out["r"], U=out["U"],
              fit_params=np.array([p_star, beta, Pi_tau, tau_exp]), boots=boots,
-             terminal=np.array(rows))
+             terminal=np.array(rows), t_f_h=t_f_h,
+             newton_fail=out["newton_fail"], max_res=out["max_res"])
     print(f"[完成] 总耗时 {time.perf_counter()-t_start:.0f} s", flush=True)
 
     import matplotlib
@@ -166,7 +182,7 @@ def main():
              label=f"重标定（β={beta:.3f}，RMSE={rmse*1000:.2f} mm）")
     ax1.set_ylabel("R (cm)")
     ax1.legend(fontsize=9)
-    ax1.set_title("热通量修正后重标定（幂律保水 + 扩展 β 下界）")
+    ax1.set_title("A04/A05 修复后重标定（幂律保水，膨压关闭）")
     ax2.plot(th, res * 1000, "g-")
     ax2.axhline(0, color="k", lw=0.5)
     ax2.set_ylabel("残差 (mm)")

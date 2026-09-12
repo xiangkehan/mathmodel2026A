@@ -51,18 +51,28 @@ def coupled_run(P, t_end, dt=1200.0, M=16, detect=True):
     cross = None
     n_steps = int(round(t_end / dt))
     rec_every = max(1, n_steps // 240)
+    n_newton_fail, max_res = 0, 0.0
     for k in range(1, n_steps + 1):
         tt = k * dt
         Ta, Ce_ = env_hold(tt)
-        # 预测-校正耦合（每区间仅一次传质推进；力学为准静态可安全调用两次）：
-        # 1) 用 U^n 求几何预测；2) 一次 BE 传质；3) 用 U^{n+1} 校正几何
+        # 预测-校正耦合（每区间仅一次传质推进）：预测与校正都必须以同一份
+        # 历史内变量 Z^n 为旧态（solve_mechanics 内部会推进 Z），
+        # 只在接受该时间步时提交一次 Z^{n+1}（A05 修复：此前校正从 Z_p 出发，
+        # 同一步松弛被推进两次，(1+Δt/τ)^{-1} 变 ^{-2}）。
         mech = solve_mechanics(r, Z, U, float(np.mean(T)), dt, X, P, active0=active)
-        r_p, Z_p, act_p = mech["r"], mech["Z"], mech["active"]
+        r_p, act_p = mech["r"], mech["active"]
         U_new, T_new, Us, Fm, Fh = mass_heat_step(U, T, dt, Ta, Ce_, r_p, X, mech["J"], P,
                                                   D_of4, k_of4, rho_cp4)
-        mech2 = solve_mechanics(r_p, Z_p, U_new, float(np.mean(T_new)), dt, X, P,
+        mech2 = solve_mechanics(r_p, Z, U_new, float(np.mean(T_new)), dt, X, P,
                                 active0=act_p)
         r, Z, active, U, T = mech2["r"], mech2["Z"], mech2["active"], U_new, T_new
+        for m_ in (mech, mech2):
+            max_res = max(max_res, m_["res_norm"])
+            if not m_["newton_ok"]:
+                n_newton_fail += 1
+                if n_newton_fail <= 20:
+                    print(f"  [warn] t={tt:.0f}s 力学牛顿未收敛 res_norm={m_['res_norm']:.2e}",
+                          flush=True)
         umax = float(np.max(U))
         if detect and cross is None and umax < TH:
             cross = (tt - dt, tt)
@@ -80,7 +90,8 @@ def coupled_run(P, t_end, dt=1200.0, M=16, detect=True):
     return dict(t=np.array(log_t), R=np.array(log_R), Um=np.array(log_um),
                 Us=np.array(log_Us), gmin=np.array(log_gmin), gS=np.array(log_gS),
                 DeS=np.array(log_DeS), volerr=np.array(log_vol),
-                X=X, r=r, U=U, T=T, Z=Z, g=g, S=S, cross=cross)
+                X=X, r=r, U=U, T=T, Z=Z, g=g, S=S, cross=cross,
+                newton_fail=n_newton_fail, max_res=max_res)
 
 
 def rmse_of(out, idx=None):

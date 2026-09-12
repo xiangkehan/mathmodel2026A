@@ -154,12 +154,19 @@ def solve_mechanics(r_guess, Z_old, U, T, dt, X, P, active0=None, tol=1e-10):
             F[M + k] = g[e]
         return F
 
+    res_norm = np.inf
+    newton_ok = False
+    n_nt = 0
     for _as in range(60):
         active_list = sorted(active)
         y = np.concatenate([r[1:], np.zeros(len(active_list))])
+        newton_ok = False
         for _nt in range(60):
+            n_nt = _nt + 1
             F = residual(y, active_list)
-            if np.linalg.norm(F, np.inf) < tol:
+            res_norm = float(np.linalg.norm(F, np.inf))
+            if res_norm < tol:
+                newton_ok = True
                 break
             n = len(y)
             Jf = np.zeros((len(F), n))
@@ -194,8 +201,15 @@ def solve_mechanics(r_guess, Z_old, U, T, dt, X, P, active0=None, tol=1e-10):
         if not changed:
             break
     zeta = np.array([zmap.get(e, 0.0) for e in range(M)])
+    # 收尾复核：以最终活动集重算平衡残差（牛顿失败时 res_norm 如实保留）
+    act_fin = sorted(active)
+    y_fin = np.concatenate([ry[1:], zeta[act_fin]]) if act_fin else ry[1:]
+    res_norm = float(np.linalg.norm(residual(y_fin, act_fin), np.inf))
+    newton_ok = bool(newton_ok and res_norm < 1e-8)
     return dict(r=ry, Z=Z, zeta=zeta, g=g, S=S, J=J,
-                sig_r=sig[:, 0], sig_t=sig[:, 1], active=sorted(active), n_as=_as)
+                sig_r=sig[:, 0], sig_t=sig[:, 1], active=sorted(active), n_as=_as,
+                res_norm=res_norm, newton_ok=newton_ok, n_newton=n_nt,
+                gmin=float(np.min(g)), zmin=float(np.min(zeta)))
 
 
 # ======================================================================
@@ -205,9 +219,14 @@ def solve_mechanics(r_guess, Z_old, U, T, dt, X, P, active0=None, tol=1e-10):
 def mass_heat_step(U, T, dt, Ta, Cenv, r, X, Jc, P, Dof, kof, acp):
     """一个 BE 步。U_t=∂_q(D/r_q²U_q)；a_eff T_t=(1/(r r_q))∂_q(rk/r_q T_q)。
 
-    湿表面：内阻 rq_s²Δq/(2D_s) 与外阻 rq_s/h_m 串联（外系数 h_m/r_q(1)）；
-    热表面：内阻 rq_sΔq/(2k_s r_s) 与外阻 1/(h r_s) 串联。
-    返回 (Unew, Tnew, Us, Fm, Fh)。
+    传质（干基权重 ρ_d·r·r_q 为固定材料质量）：通量 (D/r_q²)U_q，单元权重 Δq。
+    传热（权重 a·r·r_q 随变形变化，非仿射下不能套用传质算子）：
+    单元热容权重 W_e=a_e·∫rr_q dq=a_e·(r_{e+1}²−r_e²)/2，
+    面通量 F=(rk/r_q)ΔT/Δq，两端由同一 W_e 归一；
+    热表面：内阻 rq_sΔq/(2k_s r_s) 与外阻 1/(h r_s) 串联（与 W 配套）；
+    湿表面：内阻 rq_s²Δq/(2D_s) 与外阻 rq_s/h_m 串联（外系数 h_m/r_q(1)）。
+    仿射 r=R√q 下热离散精确退化到 solver_q4.coupled_step4 的形式。
+    Jc 保留于接口（诊断用），热权重不再使用 R0²J/2 近似。返回 (Unew, Tnew, Us, Fm, Fh)。
     """
     M = len(X) - 1
     q = (X / R0) ** 2
@@ -245,15 +264,17 @@ def mass_heat_step(U, T, dt, Ta, Cenv, r, X, Jc, P, Dof, kof, acp):
         A[1, :] = diag
         A[2, :-1] = -bL
         Un2 = solve_banded((1, 1), A, rhs)
-        # ---- 热（q 形式通量 Φ=(k/r_q²)T_q，与湿分同构；单元权重 wc=R0²J_e/2）----
+        # ---- 热（有限体积：W_e=a_e·(r²差)/2，面通量 F=(rk/r_q)ΔT/Δq，W 归一）----
         a = acp(Un2)
         kf = np.array([float(kof(0.5 * (Un2[j - 1] + Un2[j]))) for j in range(1, M)])
-        wc = (R0 ** 2 / 2.0) * Jc
-        chR = kf * dt / (rqf ** 2 * dc * dqe[:-1] * wc[:-1] * a[:-1])
-        chL = kf * dt / (rqf ** 2 * dc * dqe[1:] * wc[1:] * a[1:])
+        W = a * 0.5 * (r[1:] ** 2 - r[:-1] ** 2)       # 单元热容权重 a∫rr_q dq
+        Gf = kf * r[1:M] / rqf                          # 面传导系数 (rk/r_q)_{j+1/2}
+        chR = Gf * dt / (dc * W[:-1])
+        chL = Gf * dt / (dc * W[1:])
         ks = float(kof(0.5 * (Us + Un2[-1])))
-        Rh = rq_s ** 2 * (dqe[-1] / 2.0) / ks + rq_s / H   # 内阻 rq²Δq/(2k) + 外阻 rq/h
-        chs = dt / (Rh * wc[-1] * a[-1])
+        Rh_int = rq_s * (dqe[-1] / 2.0) / (ks * rs)     # 内阻 rqΔq/(2kr)
+        Rh_ext = 1.0 / (H * rs)                         # 外阻 1/(hr)
+        chs = dt / ((Rh_int + Rh_ext) * W[-1])
         diagT = 1.0 + np.concatenate(([0.0], chL)) + np.concatenate((chR, [0.0]))
         diagT[-1] += chs
         rhsT = T.copy()
@@ -268,7 +289,7 @@ def mass_heat_step(U, T, dt, Ta, Cenv, r, X, Jc, P, Dof, kof, acp):
         if dm < 1e-10:
             break
     Fm = HM * (Cenv - Us) / rq_s
-    Fh = (Ta - Tn[-1]) / Rh
+    Fh = (Ta - Tn[-1]) / (Rh_int + Rh_ext)
     return Un, Tn, Us, Fm, Fh
 
 

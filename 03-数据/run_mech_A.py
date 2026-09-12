@@ -110,6 +110,25 @@ def degradation():
     dg_ana = P6.rho_d0 / RHO_W * 0.5
     res["vi_growth_relerr"] = float(np.max(np.abs(dg_num - dg_ana) / dg_ana))
     # (vii) 全程 g≥0（在中心情景全程检验，见场景运行）
+    # (viii) 热算子退化对拍（审计 A04 门禁，2026-09-12 固化）：固定圆柱、无失水、
+    # 常物性 ρc_p=820×2600、k=0.36，初温 T0_K、空气阶跃 323.15 K，
+    # 与 solver_q4.coupled_step4 同一后向欧拉步对照（仿射 r=X 下两实现应一致）
+    from solver_q4 import coupled_step4
+    Pp = {"rho_cp": lambda C: np.full_like(np.asarray(C, float), 820 * 2600.),
+          "k_of": lambda C: np.full_like(np.asarray(C, float), 0.36),
+          "D_of": lambda C, T: np.full_like(np.asarray(C, float), 1e-9),
+          "dD_dC": lambda C, T: np.zeros_like(np.asarray(C, float))}
+    mat = MechParams(rho_d0=250.0, rho_s=1468.0)
+    for N in (16, 80, 160):
+        XN = R0 * np.sqrt(np.linspace(0, 1, N + 1))
+        UN, TN = np.full(N, C0), np.full(N, T0_K)
+        for dtv in ((1.0, 60.0) if N < 160 else (60.0,)):
+            ref = coupled_step4(UN, TN, dtv, 323.15, C0, 1 / N, False, R0, Pp)
+            mh = mass_heat_step(UN, TN, dtv, 323.15, C0, XN, XN, np.ones(N), mat,
+                                Pp["D_of"], Pp["k_of"], Pp["rho_cp"])
+            res[f"viii_heat_N{N}_dt{dtv:g}"] = float(np.max(np.abs(ref[1] - mh[1])))
+    res["viii_heat_refinement"] = bool(
+        res["viii_heat_N160_dt60"] < res["viii_heat_N80_dt60"] < res["viii_heat_N16_dt60"])
     return res
 
 
@@ -132,12 +151,14 @@ def coupled_run(P, t_end=60 * 3600.0, dt=900.0, M=16, frames=121):
         tt = k * dt
         Ta, Ce_ = env_hold(tt)
         for _ in range(2):
+            # A05 修复：两轮候选都以同一份 Z^n 为旧态，步末只提交一次
             mech = solve_mechanics(r, Z, U, float(np.mean(T)), dt, X, P, active0=active)
-            r2, Z2, active2 = mech["r"], mech["Z"], mech["active"]
+            r2, active2 = mech["r"], mech["active"]
             Jc = mech["J"]
             U2, T2, Us2, Fm, Fh = mass_heat_step(U, T, dt, Ta, Ce_, r2, X, Jc, P,
                                                  D_of4, k_of4, rho_cp4)
-            r, Z, active, U, T = r2, Z2, active2, U2, T2
+            r, active, U, T = r2, active2, U2, T2
+        Z = mech["Z"]
         if k % max(1, n_steps // (frames - 1)) == 0 or k == n_steps:
             _, _, J, w, g, Pore, S = elem_quantities(r, X, U, P)
             lhs, rhs = volume_check(r, X, U, P)
@@ -221,6 +242,12 @@ def main():
         f.write(f"v_affine_relerr,{dg['v_affine_relerr']:.3e},<1e-10,{dg['v_affine_relerr'] < 1e-10}\n")
         f.write(f"vi_growth_relerr,{dg['vi_growth_relerr']:.3e},<1e-12,{dg['vi_growth_relerr'] < 1e-12}\n")
         f.write(f"vii_gmin_all,{dg['vii_gmin_all']:.3e},>-1e-10,{dg['vii_gmin_all'] > -1e-10}\n")
+        f.write(f"viii_heat_N16_dt1,{dg['viii_heat_N16_dt1']:.3e},<0.2,{dg['viii_heat_N16_dt1'] < 0.2}\n")
+        f.write(f"viii_heat_N16_dt60,{dg['viii_heat_N16_dt60']:.3e},<0.5,{dg['viii_heat_N16_dt60'] < 0.5}\n")
+        f.write(f"viii_heat_N80_dt1,{dg['viii_heat_N80_dt1']:.3e},<0.05,{dg['viii_heat_N80_dt1'] < 0.05}\n")
+        f.write(f"viii_heat_N80_dt60,{dg['viii_heat_N80_dt60']:.3e},<0.2,{dg['viii_heat_N80_dt60'] < 0.2}\n")
+        f.write(f"viii_heat_N160_dt60,{dg['viii_heat_N160_dt60']:.3e},<0.1,{dg['viii_heat_N160_dt60'] < 0.1}\n")
+        f.write(f"viii_heat_refinement,{dg['viii_heat_refinement']},True,{dg['viii_heat_refinement']}\n")
     with open(HERE / "mechA_scenarios.csv", "w", encoding="utf-8") as f:
         f.write("Pi_c,Pi_tau,rmse_cm,err_early_cm,err_mid_cm,err_late_cm,g_min,R_end_cm,wall_s\n")
         for r_ in rows:
