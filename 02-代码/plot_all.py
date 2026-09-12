@@ -1,6 +1,6 @@
 """M5 图表生成（出版级样式重构版）：从 03-数据/ 的唯一数据源出 6 张论文用矢量图。
 
-用法：  python plot_all.py            # 一次出全部 9 张（PDF + 300dpi PNG + 灰度预览）
+用法：  python plot_all.py            # 一次出全部 10 张（PDF + 300dpi PNG + 灰度预览）
          python plot_all.py fig4       # 只出某一张（调试用）
          python plot_all.py --no-cache # fig4 的附4固定R对照曲线强制重算
 
@@ -28,6 +28,8 @@
         标定用的驱动场同为附件2 几何，见 03-数据/内生收缩模型.md）
   fig8  q4_endo_fields.npz（内生几何 C、T、R_t → 3D 时空曲面）
   fig9  q4_endo_fields.npz（同上 → 6 个时刻的圆盘截面）
+  fig10 mechA_scenarios.csv（情景标量）、mechA_fields_central.npz（中央情景场）；
+        Π_c=0.2/5/15 的场由 03-数据/run_mech_A.py 的求解器现算（见 力学升级_A级.md）
 
 口径常数（非结果数字，仅用于画线/判定，来源已注明）：
   TH = 0.15 kg/kg  —— 题目问题 3 原文“水分浓度应低于 0.15 kg/kg”
@@ -1320,8 +1322,127 @@ def fig9():
     save(fig, "fig9_截面演化")
 
 
+# ====================== F10 力学升级（A 级情景） ======================
+def fig10():
+    """A 级力学驱动内生收缩模型的情景研究：R(t) 情景 / 孔隙非负 / 结皮 De 诊断。
+
+    数据源：03-数据/mechA_scenarios.csv（情景标量：RMSE、R_end、g_min）+
+    mechA_fields_central.npz（中央情景 Π_c=1、Π_τ=1 的场）。其余 Π_c 的 R(t)/g(t)/De(t)
+    用本仓库同一求解器现算（只读导入 03-数据/run_mech_A.py 的 P_of + coupled_run，
+    M=16/dt=900 s），并与 CSV / 力学升级_A级.md 的数字逐值核对。口径见 03-数据/力学升级_A级.md。
+    """
+    sys.path.insert(0, str(DATA_DIR))          # run_mech_A 在 03-数据/（只读导入）
+    from run_mech_A import P_of, coupled_run, rmse_seg
+
+    head, rows = read_csv_rows("mechA_scenarios.csv")
+    scen = {(float(r["Pi_c"]), float(r["Pi_tau"])): r for r in rows}
+    d = np.load(DATA_DIR / "mechA_fields_central.npz")
+    t_att, R_att2 = read_att2()
+
+    PHI_G0 = 0.1726        # 初始孔隙率（口径常数：力学升级_A级.md §2，体积审计下界）
+    T_END, DT, M = 60 * 3600.0, 900.0, 16
+    PI_C = (0.2, 1.0, 5.0, 15.0)
+    t0 = time.perf_counter()
+    runs = {1.0: dict(t=d["t"], R=d["R"], gmin=d["gmin"], gS=d["gS"], DeS=d["DeS"])}
+    for pic in PI_C:
+        if pic not in runs:
+            runs[pic] = coupled_run(P_of(PHI_G0, pic, 1.0), t_end=T_END, dt=DT, M=M)
+    # 现算值与 CSV（Π_c=0.2/1/5）逐值核对；Π_c=15 无 CSV 行，与 力学升级_A级.md §4 核对
+    chk = {}
+    for pic in PI_C:
+        o = runs[pic]
+        rm = rmse_seg(o["t"], o["R"])[0] * 100
+        if (pic, 1.0) in scen:
+            ref = float(scen[(pic, 1.0)]["rmse_cm"])
+            assert abs(rm - ref) < 5e-3, (pic, rm, ref)
+        chk[pic] = dict(rmse=rm, rend=float(o["R"][-1]) * 100,
+                        gmin=float(np.min(o["gmin"])), demax=float(np.max(o["DeS"])))
+    assert abs(chk[15.0]["rmse"] - 0.185) < 2e-3 and abs(chk[15.0]["rend"] - 1.393) < 2e-3, \
+        f"Π_c=15 与力学升级_A级.md §4 不符：{chk[15.0]}"
+    assert min(v["gmin"] for v in chk.values()) > 0.0, chk      # 全程 g≥0
+    assert 1e5 < chk[1.0]["demax"] < 1e8, chk[1.0]              # De 升到 1e6 量级
+
+    fig, (axA, axB, axC) = plt.subplots(1, 3, figsize=(W_DOUBLE, 3.4),
+                                        gridspec_kw=dict(width_ratios=[1.25, 1.0, 1.0]))
+    fig.subplots_adjust(left=0.075, right=0.985, top=0.865, bottom=0.17, wspace=0.35)
+
+    # ---- (a) R(t) 情景 vs 附件2 ----
+    axA.plot(t_att / 3600.0, R_att2, color=ROLE["data"], lw=1.6, zorder=5)
+    styles = ((ROLE["model2"], ":"), (ROLE["model"], "--"),
+              (ROLE["analytic"], "-."), (ROLE["ref"], "-"))
+    for pic, (col, ls) in zip(PI_C, styles):
+        o = runs[pic]
+        axA.plot(o["t"] / 3600.0, o["R"] * 100, color=col, ls=ls, lw=1.2)
+        # 各情景在末端的半径（曲线彼此分离，直标避免图例压线）
+        axA.text(57.0, float(o["R"][-1]) * 100 + 0.012,
+                 f"$\\Pi_c$={pic:g}（RMSE {chk[pic]['rmse']:.2f}）", ha="right",
+                 va="bottom",
+                 fontsize=7.5, color=col)
+    axA.axhline(float(R_att2[-1]), color=ROLE["guide"], ls=":", lw=1.0)
+    axA.text(59.0, float(R_att2[-1]) - 0.020, "附件2 平台 1.198 cm", ha="right",
+             va="top", fontsize=7.5, color="0.30")
+    axA.text(57.0, chk[15.0]["rend"] - 0.022, f"$R_{{end}}$={chk[15.0]['rend']:.3f}",
+             ha="right", va="top", fontsize=7.5, color=ROLE["ref"])
+    axA.set_xlim(0, 60)
+    axA.set_ylim(1.15, 2.05)
+    axA.set_xlabel("烘干时间 $t$ / h")
+    axA.set_ylabel("药材半径 $R$ / cm")
+    style_axis(axA, grid="y")
+    panel(axA, "(a)", dx=-0.135)
+    tile(axA, "$R(t)$：情景 vs 附件2")
+
+    # ---- (b) 气相体积份额 g(t) ----
+    for pic, col, ls in ((1.0, ROLE["model"], "-"), (15.0, ROLE["ref"], "--")):
+        axB.plot(runs[pic]["t"] / 3600.0, runs[pic]["gmin"], color=col, ls=ls, lw=1.3,
+                 label=f"$\\Pi_c$={pic:g}（$g_{{min}}$）")
+    axB.axhline(PHI_G0, color=ROLE["guide"], ls=":", lw=1.0)
+    axB.text(58.0, PHI_G0 + 0.012, f"初始孔隙率 {PHI_G0:.3f}", ha="right", va="bottom",
+             fontsize=7.5, color="0.30")
+    axB.axhline(0.0, color="0.25", lw=0.8)
+    axB.text(1.5, 0.660, "全程 $g\\geq0$", ha="left", va="top", fontsize=7.5, color="0.30")
+    axB.set_xlim(0, 60)
+    axB.set_ylim(0.0, 0.72)
+    axB.set_xlabel("烘干时间 $t$ / h")
+    axB.set_ylabel("气相体积份额 $g$")
+    style_axis(axB, grid="y")
+    axB.legend(loc="lower right", handlelength=1.5, labelspacing=0.24)
+    panel(axB, "(b)", dx=-0.16)
+    tile(axB, "孔隙非负：$g(t)$ 轨迹")
+
+    # ---- (c) 结皮诊断：表面 De(t) ----
+    axC.axvspan(12.0, 18.0, color="0.93", lw=0, zorder=0)
+    axC.text(15.0, 2.2e1, "分裂步长抖动\n（见报告 §4）", ha="center", va="bottom",
+             fontsize=7.5, color="0.45")
+    for pic, col, ls in ((1.0, ROLE["model"], "-"), (15.0, ROLE["ref"], "--")):
+        axC.semilogy(runs[pic]["t"] / 3600.0, runs[pic]["DeS"], color=col, ls=ls, lw=1.3,
+                     label=f"$\\Pi_c$={pic:g}")
+    axC.axhline(1.0, color=ROLE["guide"], ls="--", lw=1.0)
+    axC.text(1.0, 1.35, "$De$=1", ha="left", va="bottom", fontsize=7.5, color="0.30")
+    axC.annotate("$De\\gg1$：表层承力/结皮\n（材料松弛响应）",
+                 xy=(30.0, 2.0e4), xytext=(0.06, 0.93), textcoords="axes fraction",
+                 fontsize=7.5, ha="left", va="top", color="0.15",
+                 arrowprops=dict(arrowstyle="-|>", lw=0.7, color="0.35"),
+                 bbox=dict(boxstyle="round,pad=0.26", fc="white", ec="0.80", lw=0.5, alpha=0.95))
+    axC.set_xlim(0, 60)
+    axC.set_ylim(1e0, 3e7)
+    axC.set_xlabel("烘干时间 $t$ / h")
+    axC.set_ylabel("表面 Deborah 数 $De$")
+    style_axis(axC, grid="y")
+    axC.legend(loc="lower right", handlelength=1.5, labelspacing=0.24)
+    panel(axC, "(c)", dx=-0.16)
+    tile(axC, "结皮诊断：表面 $De(t)$")
+
+    print(f"  [F10] 情景现算 {time.perf_counter()-t0:.0f} s；"
+          + "；".join(f"Π_c={k:g}: RMSE {v['rmse']:.3f} / $R_{{end}}$ {v['rend']:.3f} / "
+                      f"$g_{{min}}$ {v['gmin']:.3f} / $De_{{max}}$ {v['demax']:.2e}"
+                      for k, v in chk.items())
+          + f"；φ_g0={PHI_G0}（口径常数）；中央情景场读自 mechA_fields_central.npz",
+          flush=True)
+    save(fig, "fig10_力学升级")
+
+
 FIGS = {"fig1": fig1, "fig2": fig2, "fig3": fig3, "fig5": fig5, "fig6": fig6,
-        "fig7": fig7, "fig8": fig8, "fig9": fig9}
+        "fig7": fig7, "fig8": fig8, "fig9": fig9, "fig10": fig10}
 
 
 def main():
@@ -1330,7 +1451,8 @@ def main():
     ap.add_argument("--no-cache", action="store_true", help="fig4 对照曲线强制重算")
     a = ap.parse_args()
     plt.rcParams.update(RC)
-    want = a.only or ["fig1", "fig2", "fig3", "fig4", "fig5", "fig6", "fig7", "fig8", "fig9"]
+    want = a.only or ["fig1", "fig2", "fig3", "fig4", "fig5", "fig6", "fig7", "fig8",
+                      "fig9", "fig10"]
     for k in want:
         print(f"[{k}] 作图 …", flush=True)
         if k == "fig4":

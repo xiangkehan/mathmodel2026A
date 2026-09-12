@@ -1,0 +1,8 @@
+check,value,threshold,pass
+i_nojump_maxdr,0.000e+00,<1e-8,True
+ii_elastic_R_end_cm,1.8433,sane,True
+iii_vs_ii_maxdR_cm,5.425e-09,<1e-3,True
+iv_maxZ_over_Emax,1.539e-11,<1e-3,True
+v_affine_relerr,4.879e-15,<1e-10,True
+vi_growth_relerr,2.168e-16,<1e-12,True
+vii_gmin_all,1.623e-01,>-1e-10,True
