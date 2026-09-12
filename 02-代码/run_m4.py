@@ -38,6 +38,19 @@ CE_YAM = 0.1366          # 山药解吸支（题外修正，只入敏感性）
 TF3_H = 57.17992518
 TF4_H = 50.823025
 
+# 敏感性行的“备注覆盖”：问题 4 效应拆分那三行须与 03-数据/run_q4_endo.py 的 ledger upsert
+# 逐字一致（键、值、备注），否则两脚本会把「外生基准」与「内生基准」两套行按运行顺序互相覆盖。
+SENS_NOTE: dict[str, str] = {}
+
+
+def read_q4_split():
+    """q4_split.csv（由 03-数据/run_q4_endo.py 产出）→ {case: 数值}；文件缺失返回 {}。"""
+    p = DATA_DIR / "q4_split.csv"
+    if not p.exists():
+        return {}
+    with open(p, encoding="utf-8") as f:
+        return {r["case"]: float(r["t_f_h"]) for r in csv.DictReader(f)}
+
 
 # ======================================================================
 # D1 判据族
@@ -375,10 +388,30 @@ def main():
     print(f"[D2] 线性插值: t_f = {tf_lin:.4f} h, Δ = {tf_lin-tf4_80:+.4f} h", flush=True)
     sens += [("环境外推:末值保持(主)", 57.20090436, 0.0),
              ("环境外推:线性外推", 58.82027949, 1.61937513),
-             ("环境外推:末1h均值", 57.50341017, 0.30250581),
-             ("问题4效应拆分:附4固定R", 129.104709, 129.104709 - tf4_80),
-             ("问题4效应拆分:附4+R(t)(主)", TF4_H, TF4_H - tf4_80),
-             ("问题4效应拆分:问题3", TF3_H, TF3_H - tf4_80)]
+             ("环境外推:末1h均值", 57.50341017, 0.30250581)]
+    # 问题 4 效应拆分：基准＝内生几何主解，唯一来源 q4_split.csv（run_q4_endo.py 产出），
+    # 键名/值/备注与 run_q4_endo.py 的 ledger upsert 逐字一致（2026-09-12 4c 键名同步）。
+    q4sp = read_q4_split()
+    if q4sp:
+        base_e = q4sp["appendix4_endogenous_R(t)"]
+        sens += [("问题4效应拆分:附4固定R", q4sp["appendix4_fixedR"],
+                  q4sp["appendix4_fixedR"] - base_e),
+                 ("问题4效应拆分:附4+R(t)(主)", base_e, 0.0),
+                 ("问题4效应拆分:问题3", q4sp["problem3"], q4sp["problem3"] - base_e)]
+        SENS_NOTE.update({
+            "问题4效应拆分:附4固定R":
+                f"Δ{q4sp['shrink_effect_endo_h']:+.4f} h（对内生主解，收缩效应 "
+                f"{q4sp['shrink_pct_of_fixedR_endo']:.1f}%）",
+            "问题4效应拆分:附4+R(t)(主)": "—（内生几何主解）",
+            "问题4效应拆分:问题3":
+                f"Δ{q4sp['net_effect_endo_h']:+.4f} h（公式+收缩效应 "
+                f"{q4sp['net_pct_of_q3_endo']:.1f}%）"})
+    else:                                   # 降级：无 q4_split.csv 时保持旧口径并明确告警
+        print("[D2] 警告：缺 03-数据/q4_split.csv（先跑 run_q4_endo.py）；"
+              "问题 4 效应拆分行回落为外生基准，与 run_q4_endo.py 写出的键值不一致", flush=True)
+        sens += [("问题4效应拆分:附4固定R", 129.104709, 129.104709 - tf4_80),
+                 ("问题4效应拆分:附4+R(t)(主)", TF4_H, TF4_H - tf4_80),
+                 ("问题4效应拆分:问题3", TF3_H, TF3_H - tf4_80)]
     with open(DATA_DIR / "sensitivity.csv", "w", encoding="utf-8") as f:
         f.write("组别,t_f_h,delta_t_f_h\n")
         for name, tf_, d_ in sens:
@@ -476,7 +509,7 @@ def main():
                     ("V6场级空间阶", "1.90-2.45")):
         A(("验证", case, "", v, "见报告"))
     for name, tf_, d_ in sens:
-        A(("敏感性", name, "", f"{tf_:.4f}", f"Δ{d_:+.4f} h"))
+        A(("敏感性", name, "", f"{tf_:.4f}", SENS_NOTE.get(name, f"Δ{d_:+.4f} h")))
     for name, v, typ in budget:
         A(("误差预算", name, "", f"{v:.4g}", typ))
     A(("误差预算", "已检查因素累计偏移量级(问题3)", "", f"{total_q3:.2f}", "h(不含C_e口径/潜热情景)"))
