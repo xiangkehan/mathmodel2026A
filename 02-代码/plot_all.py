@@ -1,6 +1,6 @@
 """M5 图表生成（出版级样式重构版）：从 03-数据/ 的唯一数据源出 6 张论文用矢量图。
 
-用法：  python plot_all.py            # 一次出全部 7 张（PDF + 300dpi PNG + 灰度预览）
+用法：  python plot_all.py            # 一次出全部 9 张（PDF + 300dpi PNG + 灰度预览）
          python plot_all.py fig4       # 只出某一张（调试用）
          python plot_all.py --no-cache # fig4 的附4固定R对照曲线强制重算
 
@@ -17,14 +17,17 @@
   fig1  附件1.xlsx（T_a、C_env）、附件2.xlsx（R）
   fig2  q1_fields.npz（T_C、times、pos_cm、env_*）、v1_points_final.csv、v1_convergence.csv
   fig3  q23_main_steps.npz（t、C、T）、q23_summary.json、criteria.csv
-  fig4  q23_main_steps.npz（um）、q4_main_steps.npz（um）、q4_split.csv、q4_bound.csv、
-        v3_bound.csv、sensitivity.csv、结果总账.csv；附4固定R对照曲线由 solver_q4 现算
-        （与 q4_split.csv 的 appendix4_fixedR 逐次核对）
+  fig4  q23_main_steps.npz（um）、**q4_endo_fields.npz（C → 逐帧 nanmax 得 maxU，内生几何主解）**、
+        q4_split.csv、q4_bound.csv、v3_bound.csv、sensitivity.csv、结果总账.csv；
+        附4固定R对照曲线由 solver_q4 现算（与 q4_split.csv 的 appendix4_fixedR 逐次核对）
   fig5  sensitivity.csv、error_budget.csv
-  fig6  endogenous_shrinkage.csv（附件2 时刻网格上的各闭合 R_pred、Ū_model、Ū_inf）；
-        缺列时回退 附件2.xlsx、q4_main_steps.npz（见 03-数据/内生收缩分析.md）
+  fig6  endogenous_shrinkage.csv（附件2 时刻网格上的各闭合 R_pred、Ū_model、Ū_inf；
+        其驱动场为**附件2 几何（外生 R）**的求解结果，见 03-数据/内生收缩分析.md）；
+        缺列时回退 附件2.xlsx、q4_main_steps.npz
   fig7  endogenous_calibrated.csv（附件2 网格上的 R_data、R_pred、残差、失水基线；
-        见 03-数据/内生收缩模型.md）
+        标定用的驱动场同为附件2 几何，见 03-数据/内生收缩模型.md）
+  fig8  q4_endo_fields.npz（内生几何 C、T、R_t → 3D 时空曲面）
+  fig9  q4_endo_fields.npz（同上 → 6 个时刻的圆盘截面）
 
 口径常数（非结果数字，仅用于画线/判定，来源已注明）：
   TH = 0.15 kg/kg  —— 题目问题 3 原文“水分浓度应低于 0.15 kg/kg”
@@ -38,6 +41,7 @@ import argparse
 import csv
 import json
 import logging
+import re
 import sys
 import time
 import warnings
@@ -217,9 +221,13 @@ def style_axis(ax, grid="y"):
 
 
 def panel(ax, tag, dx=-0.10):
-    """面板标签 (a)/(b)：粗体小写，左上外侧。"""
-    ax.text(dx, 1.03, tag, transform=ax.transAxes, fontsize=9, fontweight="bold",
-            va="bottom", ha="left", color="0.10")
+    """面板标签 (a)/(b)：粗体小写，左上外侧（3D 轴须用 text2D，否则被当数据坐标）。"""
+    kw = dict(transform=ax.transAxes, fontsize=9, fontweight="bold", va="bottom",
+              ha="left", color="0.10")
+    if hasattr(ax, "get_zlim"):          # mplot3d
+        ax.text2D(dx, 1.03, tag, **kw)
+    else:
+        ax.text(dx, 1.03, tag, **kw)
 
 
 def tile(ax, title):
@@ -258,15 +266,33 @@ AUDIT: list[dict] = []
 
 def tick_texts(axis):
     """仅返回**视图范围内**可见的刻度文字（get_xticklabels 会带上范围外、
-    尺寸为 None 的隐藏刻度，拿去判裁切会得到假阳性）。"""
-    lo, hi = sorted(axis.get_view_interval())
-    out = []
-    for tick in axis.get_major_ticks():
-        loc = float(tick.get_loc())
-        if lo - 1e-9 <= loc <= hi + 1e-9:
-            labs = [tick.label1] + ([tick.label2] if tick.label2.get_text().strip() else [])
-            out += [t for t in labs if t.get_visible()]
-    return out
+    尺寸为 None 的隐藏刻度，拿去判裁切会得到假阳性）。3D 轴（Axis3D）走回退分支。"""
+    try:
+        lo, hi = sorted(axis.get_view_interval())
+        out = []
+        for tick in axis.get_major_ticks():
+            loc = float(tick.get_loc())
+            if lo - 1e-9 <= loc <= hi + 1e-9:
+                labs = [tick.label1] + ([tick.label2]
+                                        if tick.label2.get_text().strip() else [])
+                out += [t for t in labs if t.get_visible()]
+        return out
+    except (AttributeError, TypeError):          # mplot3d Axis3D
+        return [t for t in axis.get_ticklabels() if t.get_text().strip() and t.get_visible()]
+
+
+def _unreliable_extent(t):
+    """mplot3d 的刻度文字与 ax.text 的 window extent 经三维投影后不可靠，
+    不能用于裁切判定（3D 面板的文字位置只能目视核对）。"""
+    ax = t.axes
+    if ax is None or not hasattr(ax, "get_zlim"):
+        return False
+    if t in list(ax.texts):
+        return True
+    for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
+        if t in tick_texts(axis):
+            return True
+    return False
 
 
 def drawn_texts(fig):
@@ -309,7 +335,7 @@ def audit_figure(fig, stem, pdf_path):
     rec = dict(stem=stem, w=round(fig.get_size_inches()[0], 3),
                h=round(fig.get_size_inches()[1], 3), titles=[], legends=[], cb=0, ax3d=0,
                bar_base=[], tick_bad=[], dense_marker=0, min_font=99.0, embed_img=0,
-               clipped=[], cap_hit=[])
+               clipped=[], cap_hit=[], cb_labels=[], cb_bad=[])
     rec["aspect"] = round(rec["h"] / rec["w"], 3)
     ren = fig.canvas.get_renderer()
     fw, fh = float(ren.width), float(ren.height)
@@ -335,8 +361,14 @@ def audit_figure(fig, stem, pdf_path):
         lg = ax.get_legend()
         if lg is not None:
             rec["legends"].append(len(lg.get_texts()))
-        if ax.get_label() == "<colorbar>":
+        # colorbar 轴：内部创建的 label 为 "<colorbar>"，用户传入 cax 时只有 _colorbar 属性
+        if ax.get_label() == "<colorbar>" or getattr(ax, "_colorbar", None) is not None:
             rec["cb"] += 1
+            lab = (ax.get_ylabel().strip() or ax.get_xlabel().strip())   # 横/竖 colorbar
+            rec["cb_labels"].append(lab)
+            # 连续色阶必须配 label（含单位）；无 label 的 colorbar 视为冗余
+            if not lab:
+                rec["cb_bad"].append("colorbar 缺 label")
         if hasattr(ax, "get_zlim"):
             rec["ax3d"] += 1
         for cont in ax.containers:
@@ -362,11 +394,17 @@ def audit_figure(fig, stem, pdf_path):
             rec["dense_marker"] += 1
 
     rec["embed_img"] = pdf_path.read_bytes().count(b"/Subtype /Image")
+    # 场图（imshow 热图/圆盘）本质是栅格数据，允许每张场图面板嵌入 1 张位图；
+    # colorbar 的色带也用一条窄图绘制。除此之外的嵌入位图 = 图被栅格化，判 FAIL。
+    rec["raster_ax"] = sum(1 for ax in fig.axes if ax.get_images())
+    rec["img_ok"] = rec["embed_img"] <= rec["raster_ax"] + rec["cb"]
     # 文字裁切检查：bbox=None 精确出图，超出画布的文字会被静默切掉
     ren = fig.canvas.get_renderer()
     fw, fh = float(ren.width), float(ren.height)
     rec["clipped"] = []
     for t in texts:
+        if _unreliable_extent(t):
+            continue                      # 3D 文字 extent 不可用，改由目视核对
         bb = t.get_window_extent(renderer=ren)
         over = max(-bb.x0, bb.x1 - fw, -bb.y0, bb.y1 - fh)   # >0 即超出画布
         if over > CLIP_TOL:
@@ -377,10 +415,11 @@ def audit_figure(fig, stem, pdf_path):
     rec["tick_ok"] = len(rec["tick_bad"]) == 0
     rec["bar_ok"] = not rec["bar_base"]
     rec["clip_ok"] = not rec["clipped"] and not rec["cap_hit"]
+    # 场图（fig8/fig9）必须有带 label 的 colorbar；其余图不得出现无 label 的 colorbar
+    rec["cb_ok"] = not rec["cb_bad"]
     rec["ok"] = (rec["font_ok"] and rec["title_ok"] and rec["legend_ok"] and rec["tick_ok"]
                  and rec["bar_ok"] and rec["clip_ok"] and not rec["figtext"]
-                 and rec["cb"] == 0 and rec["ax3d"] == 0
-                 and rec["embed_img"] == 0 and rec["dense_marker"] == 0
+                 and rec["cb_ok"] and rec["img_ok"] and rec["dense_marker"] == 0
                  and ASPECT_EXEMPT.get(stem, ASPECT)[0] <= rec["aspect"]
                  <= ASPECT_EXEMPT.get(stem, ASPECT)[1])
     AUDIT.append(rec)
@@ -418,6 +457,9 @@ def save(fig, stem):
           f"图内文字块 {len(rec['figtext'])}", flush=True)
     if rec["clipped"] or rec["cap_hit"]:
         print(f"      [裁切/压轴标] {rec['clipped']} {rec['cap_hit']}", flush=True)
+    if rec["ax3d"]:
+        print(f"      [3D] {rec['ax3d']} 个 3D 面板：其刻度/轴内文字的位置须目视核对"
+              "（extent 不可用，程序无法判裁切）", flush=True)
     print(f"  [出图] {pdf.name} ({pdf.stat().st_size/1024:.0f} kB) "
           f"+ {png.name} ({png.stat().st_size/1024:.0f} kB) "
           f"+ _qa/{stem}_gray.png", flush=True)
@@ -678,12 +720,13 @@ def fixedR_control(force=False):
 def fig4(no_cache=False):
     d3 = np.load(DATA_DIR / "q23_main_steps.npz")
     t3, um3 = d3["t"], d3["um"]
-    d4 = np.load(DATA_DIR / "q4_main_steps.npz")
-    t4, um4 = d4["t"], d4["um"]
+    # 问题4 主解 = 内生几何版：max_q U(q,t) 由内生时空场逐帧全域（r≤R(t)，域外 NaN）取最大值
+    de = np.load(DATA_DIR / "q4_endo_fields.npz")
+    t4, um4 = de["t_s"], np.nanmax(de["C"], axis=1)
     tc, umc, tfc = fixedR_control(force=no_cache)
 
     tf3 = d3["crossing"][2] / 3600.0
-    tf4 = d4["crossing"][2] / 3600.0
+    tf4 = crossing_time(t4, um4, TH) / 3600.0
     lb3 = float([r["value"] for r in read_csv_rows("v3_bound.csv")[1]
                  if r["quantity"] == "t_lb_h"][0])
     lb4 = float([r["value"] for r in read_csv_rows("q4_bound.csv")[1]
@@ -691,17 +734,24 @@ def fig4(no_cache=False):
     _, split = read_csv_rows("q4_split.csv")
     tf_ctl_csv = float([s["t_f_h"] for s in split if s["case"] == "appendix4_fixedR"][0])
 
-    # 与结果总账.csv 交叉核对（图上的 t_f 必须等于总账口径，防“图文不一致”）
+    # 与结果总账.csv 交叉核对：图上 问题4 主解 t_f 必须等于总账的**内生几何主值**（找不到判失败）。
+    # 总账该行写的是末帧时刻（步末口径 50.5369 h），本图用线性插值穿越时刻（50.5362 h），
+    # 二者差异 ~0.0007 h，故容差取 0.01 h。
     ledger = {}
     for line in (DATA_DIR / "结果总账.csv").read_text(encoding="utf-8").splitlines():
         f = line.split(",")
-        if len(f) >= 4 and f[0] == "t_f":
-            if f[1].startswith("问题3主值"):
-                ledger["q3"] = float(f[3])
-            elif f[1].startswith("问题4主值"):
-                ledger["q4"] = float(f[3])
-    assert abs(ledger["q3"] - tf3) < 1e-6 and abs(ledger["q4"] - tf4) < 1e-6, ledger
-    print(f"  [F4] 与结果总账.csv 一致：{ledger['q3']} / {ledger['q4']} h", flush=True)
+        if len(f) >= 2 and f[0] == "t_f":
+            for key, pat in (("q3", "问题3主值"), ("q4", "问题4主值")):
+                if f[1].startswith(pat):
+                    nums = [float(x) for x in f[1:]
+                            if re.fullmatch(r"-?\d+(\.\d+)?", x.strip())]
+                    if nums:
+                        ledger[key] = nums[0]
+    assert abs(ledger["q3"] - tf3) < 1e-6, ledger
+    assert abs(ledger["q4"] - tf4) < 0.01, \
+        f"图上问题4主解 t_f={tf4:.4f} h 与总账内生主值 {ledger['q4']} h 不符"
+    print(f"  [F4] 与结果总账.csv 一致：问题3 {ledger['q3']} h / 问题4（内生几何主值）"
+          f"{ledger['q4']} h（本图插值穿越 {tf4:.4f} h）", flush=True)
 
     h3, h4, hc = t3 / 3600.0, t4 / 3600.0, tc / 3600.0
     fig, ax = plt.subplots(figsize=(W_SINGLE, 3.2))
@@ -709,7 +759,7 @@ def fig4(no_cache=False):
     ax.plot(h3, um3, color=ROLE["model2"], lw=1.3,
             label=f"问题3 主解（附3 + 固定 $R$）：$t_f$={tf3:.2f} h")
     ax.plot(h4, um4, color=ROLE["model"], lw=1.5,
-            label=f"问题4 主解（附4 + $R(t)$）：$t_f$={tf4:.2f} h")
+            label=f"问题4 主解（内生几何 + $R_{{pred}}(t)$）：$t_f$={tf4:.2f} h")
     ax.plot(hc, umc, color=ROLE["ref"], lw=1.2, ls="--",
             label=f"对照：附4 + 固定 $R_0$：$t_f$={tfc:.2f} h")
     ax.axhline(TH, color=ROLE["guide"], ls="--", lw=1.1,
@@ -750,12 +800,16 @@ def fig4(no_cache=False):
                  fontsize=7.5, color=ROLE["model2"], va="bottom")
     ins.annotate(f"$t_f$={tf4:.2f} h", xy=(tf4, TH), xytext=(tf4 + 0.8, 0.1565),
                  fontsize=7.5, color=ROLE["model"], va="bottom")
-    print(f"  [F4] t_f: 问题3 {tf3:.4f} h / 问题4 {tf4:.4f} h / 附4固定R {tfc:.4f} h"
+    print(f"  [F4] t_f: 问题3 {tf3:.4f} h / 问题4（内生几何）{tf4:.4f} h / 附4固定R {tfc:.4f} h"
           f"（csv {tf_ctl_csv:.4f}）; 下界 {lb3:.4f} / {lb4:.4f} h", flush=True)
-    print(f"  [F4] 效应拆分（源 q4_split.csv）：对照 {tf_ctl_csv:.2f} h → 附3 物性 "
-          f"{tf3:.2f} h → 真实收缩 $R(t)$ {tf4:.2f} h（{tf4-tf_ctl_csv:+.2f} h，占对照 "
-          f"{(tf_ctl_csv-tf4)/tf_ctl_csv*100:.1f}%）；严格下界余量 {tf3-lb3:.2f} / "
-          f"{tf4-lb4:.2f} h（源 v3_bound.csv、q4_bound.csv）", flush=True)
+    i_tf = int(np.argmin(np.abs(h4 - tf4)))
+    print(f"  [F4] maxU 抽查（源 q4_endo_fields.npz 的 nanmax(C)）：帧 {i_tf} t={h4[i_tf]:.4f} h "
+          f"maxU={um4[i_tf]:.6f}（阈值 {TH}）；末帧 t={h4[-1]:.4f} h maxU={um4[-1]:.6f}", flush=True)
+    print(f"  [F4] 效应拆分：① 附4+固定 $R_0$ = {tf_ctl_csv:.2f} h；"
+          f"② 附4+内生 $R(t)$ = {tf4:.2f} h；③ 问题3（附3+固定 $R$） = {tf3:.2f} h；"
+          f"收缩效应 ①−② = {tf_ctl_csv-tf4:.2f} h（{(tf_ctl_csv-tf4)/tf_ctl_csv*100:.1f}%）；"
+          f"净效应 ③−② = {tf3-tf4:.2f} h（{(tf3-tf4)/tf3*100:.1f}%）；"
+          f"严格下界余量 {tf3-lb3:.2f} / {tf4-lb4:.2f} h", flush=True)
     assert tf4 > lb4 and tf3 > lb3, "主解低于严格下界"
     save(fig, "fig4_达标穿越")
 
@@ -878,7 +932,7 @@ def fig6():
     if U_inf is None:                       # 等容失水反推（内生收缩分析.md §0）
         U_inf = (1.0 + C0) * (R_att2 / (R0 * 100.0)) ** 2 - 1.0
     U_mod = pick("U_mean_model")
-    if U_mod is None:                       # 回退：问题4 主解步记录
+    if U_mod is None:                       # 回退：附件2 几何（外生 R）的问题4 步记录
         d4 = np.load(DATA_DIR / "q4_main_steps.npz")
         U_mod = np.interp(t_s, d4["t"], d4["um"])
     R_ideal, R_crust, R_pore = (pick("R1_ideal_mean_cm"), pick("R3b_crust_mean_cm"),
@@ -967,7 +1021,7 @@ def fig6():
     axR.plot(h, U_inf, color=ROLE["data"], lw=1.4, zorder=5,
              label=r"附件2 $\bar U_{inf}(t)$（由 $R$ 反推）")
     axR.plot(h, U_mod, color=ROLE["model"], lw=1.3,
-             label=r"模型 $\bar U_{model}(t)$（问题4）")
+             label=r"模型 $\bar U_{model}(t)$（附件2 几何求解）")
     axR.plot([t_cross], [u_cross], marker="o", ms=5.4, mfc="white", mec=ROLE["ref"],
              mew=1.3, zorder=6)
     axR.annotate(f"交叉 ≈ {t_cross:.1f} h", xy=(t_cross, u_cross),
@@ -1100,8 +1154,147 @@ def fig7():
     save(fig, "fig7_内生收缩贴合")
 
 
+# ====================== F8 药柱 3D 时空演化 ======================
+def fig8():
+    """问题4 内生版药柱的时空场：C(r,t) 与 T(r,t) 曲面（r 方向随 R(t) 内缩）。
+
+    数据源 03-数据/q4_endo_fields.npz（见同目录 README）：固定物理网格 r_cm、帧间隔 360 s、
+    r>R(t) 处为 NaN（画面上即“域随半径收缩”的自由边），R_t 为闭合 C 预测的外半径。
+    """
+    d = np.load(DATA_DIR / "q4_endo_fields.npz")
+    t_s, r_cm = d["t_s"], d["r_cm"]
+    C, T, R_t = d["C"], d["T"], d["R_t"]
+    h = t_s / 3600.0
+
+    ti = np.arange(0, len(h), 4)          # 507 帧抽稀到 127，保持 R(t) 边界分辨率
+    ri = np.arange(0, len(r_cm), 2)       # 101 网格抽稀到 51
+    TT, RR = np.meshgrid(h[ti], r_cm[ri], indexing="ij")
+    ZC, ZT = C[np.ix_(ti, ri)], T[np.ix_(ti, ri)]
+
+    c_lo, c_hi = float(np.nanmin(C)), float(np.nanmax(C))
+    t_lo, t_hi = float(np.nanmin(T)), float(np.nanmax(T))
+    # 抽查：第 1/3、2/3 帧在 r=R(t) 处的 C（与 npz 原值逐点核对，见 stdout）
+    probe = [(len(h) // 3, int(np.sum(~np.isnan(C[len(h) // 3]))) - 1),
+             (2 * len(h) // 3, int(np.sum(~np.isnan(C[2 * len(h) // 3]))) - 1)]
+
+    fig = plt.figure(figsize=(W_DOUBLE, 3.8))
+    rects = [(0.040, 0.290, 0.395, 0.515), (0.535, 0.290, 0.395, 0.515)]
+    caxs = [(0.115, 0.112, 0.205, 0.026), (0.610, 0.112, 0.205, 0.026)]
+    specs = ((ZC, "viridis", c_lo, c_hi, "(a)", "水分场 $C(r,t)$：锋面内移"),
+             (ZT, "magma", t_lo, t_hi, "(b)", "温度场 $T(r,t)$：热场准稳态"))
+    for (Z, cmap_name, lo, hi, tag, title), rect, crect in zip(specs, rects, caxs):
+        ax = fig.add_axes(rect, projection="3d")
+        cmap = plt.get_cmap(cmap_name).copy()
+        cmap.set_bad(alpha=0.0)           # 域外（NaN）不画
+        norm = matplotlib.colors.Normalize(vmin=lo, vmax=hi)
+        ax.plot_surface(RR, TT, Z, cmap=cmap, norm=norm, rcount=Z.shape[1],
+                        ccount=Z.shape[0], linewidth=0, antialiased=False, shade=False)
+        # 底面画出 R(t)：域外（r>R(t)）无曲面，这条线即“半径随时间收缩”的直接证据
+        ax.plot(R_t[ti], h[ti], zs=lo, zdir="z", color=ROLE["data"], lw=1.2, zorder=10)
+        ax.text(1.72, 18.0, lo, " $R(t)$", fontsize=7.5, color=ROLE["data"], zorder=20)
+        ax.set_xlim(0, 2.0)
+        ax.set_ylim(0, float(h[-1]))
+        ax.set_zlim(lo, hi)
+        ax.set_xticks([0.5, 1.0, 1.5, 2.0])      # 不标 r=0：与 t 轴原点的 0 重合
+        ax.set_yticks([0, 10, 20, 30, 40, 50])
+        ax.set_zticks([np.round(v, 2) for v in np.linspace(lo, hi, 3)])
+        ax.set_xlabel("$r$ / cm", labelpad=3)
+        ax.set_ylabel("$t$ / h", labelpad=3)
+        ax.set_zlabel("$C$ / (kg/kg)" if tag == "(a)" else "$T$ / ℃", labelpad=2)
+        ax.tick_params(labelsize=7.5, pad=1)
+        ax.view_init(elev=22, azim=-122)
+        ax.set_box_aspect((1.0, 1.5, 0.95), zoom=1.32)
+        cax = fig.add_axes(crect)
+        cb = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap), cax=cax,
+                          orientation="horizontal")
+        cb.set_label("水分浓度 $C$ / (kg/kg)" if tag == "(a)" else "温度 $T$ / ℃",
+                     fontsize=7.5)
+        cb.ax.tick_params(labelsize=7.5)
+        panel(ax, tag, dx=0.005)
+        tile(ax, title)
+
+    print(f"  [F8] C 全域 {c_lo:.4f}–{c_hi:.4f} kg/kg；T 全域 {t_lo:.2f}–{t_hi:.2f} ℃；"
+          f"R {R_t[0]:.4f}→{R_t[-1]:.4f} cm（{h[0]:.2f}–{h[-1]:.2f} h，{len(h)} 帧）；"
+          f"抽查 C[i={probe[0][0]}, r={r_cm[probe[0][1]]:.2f}]={C[probe[0]]:.5f}、"
+          f"C[i={probe[1][0]}, r={r_cm[probe[1][1]]:.2f}]={C[probe[1]]:.5f}", flush=True)
+    save(fig, "fig8_药柱3D演化")
+
+
+# ====================== F9 截面演化 ======================
+def fig9():
+    """问题4 内生版药柱的截面热图：6 个代表时刻的圆盘截面（半径随时间收缩）。
+
+    数据源同 fig8：每个时刻把 C(r,t) 插到 Cartesian 网格上、r>R(t) 处留白，
+    6 盘共享同一色标（全域 min–max）与同一个 colorbar。
+    """
+    d = np.load(DATA_DIR / "q4_endo_fields.npz")
+    t_s, r_cm = d["t_s"], d["r_cm"]
+    C, R_t = d["C"], d["R_t"]
+    h = t_s / 3600.0
+    c_lo, c_hi = float(np.nanmin(C)), float(np.nanmax(C))
+
+    t_show = [0.0, 5.0, 15.0, 25.0, 40.0, 50.0]
+    idx = [int(np.argmin(np.abs(h - th))) for th in t_show]
+    xg = np.linspace(-2.2, 2.2, 221)
+    XX, YY = np.meshgrid(xg, xg)
+    Rn = np.hypot(XX, YY)
+
+    fig = plt.figure(figsize=(W_DOUBLE, 3.9))
+    fig.subplots_adjust(left=0.045, right=0.885, top=0.885, bottom=0.105,
+                        wspace=0.10, hspace=0.30)
+    cmap = plt.get_cmap("viridis").copy()
+    cmap.set_bad("white")                 # 域外留白
+    im = None
+    for k, (th, i) in enumerate(zip(t_show, idx)):
+        ax = fig.add_subplot(2, 3, k + 1)
+        prof = C[i]
+        ok = ~np.isnan(prof)
+        Z = np.interp(Rn, r_cm[ok], prof[ok])          # 按半径插值到圆盘网格
+        Z = np.where(Rn <= R_t[i], Z, np.nan)          # 域外（r>R(t)）留白
+        im = ax.imshow(Z, origin="lower", extent=[xg[0], xg[-1], xg[0], xg[-1]],
+                       cmap=cmap, vmin=c_lo, vmax=c_hi, interpolation="nearest")
+        ax.add_patch(plt.Circle((0, 0), R_t[0], fill=False, ec="0.55", lw=0.6, ls=":"))
+        ax.set_xlim(xg[0], xg[-1])
+        ax.set_ylim(xg[0], xg[-1])
+        ax.set_aspect("equal")
+        for s in ("top", "right", "left", "bottom"):
+            ax.spines[s].set_visible(False)
+        ax.set_xticks([-2, -1, 0, 1, 2])
+        ax.set_yticks([-2, -1, 0, 1, 2])
+        ax.tick_params(labelsize=7.5, pad=1, length=0)
+        if k < 3:
+            ax.set_xticklabels([])
+        else:
+            ax.set_xlabel("$x$ / cm", labelpad=1)
+        if k % 3:
+            ax.set_yticklabels([])
+        else:
+            ax.set_ylabel("$y$ / cm", labelpad=1)
+        tile(ax, f"$t$={th:g} h，$R$={R_t[i]:.2f} cm")
+    cax = fig.add_axes([0.905, 0.245, 0.016, 0.52])
+    cb = fig.colorbar(im, cax=cax)
+    cb.set_label("水分浓度 $C$ / (kg/kg)", fontsize=7.5)
+    cb.ax.tick_params(labelsize=7.5)
+    # 抽查：对同一帧，比较 npz 网格原值与“插值到圆盘 Cartesian 网格”的值
+    i_chk, i2_chk = idx[3], idx[1]
+    prof, okp = C[i_chk], ~np.isnan(C[i_chk])
+    prof2, okp2 = C[i2_chk], ~np.isnan(C[i2_chk])
+    chk = []
+    for rr in (0.0, 0.5, 1.0):
+        v_npz = float(prof[okp][int(np.argmin(np.abs(r_cm[okp] - rr)))])
+        v_disk = float(np.interp(rr, r_cm[okp], prof[okp]))   # 圆盘网格用的同一插值
+        chk.append(f"C({rr:.1f})={v_disk:.4f}(npz {v_npz:.4f})")
+    v_srf = float(prof[okp][-1])
+    v_srf5 = float(prof2[okp2][-1])
+    print(f"  [F9] 6 时刻 t={t_show} h（帧 {idx}）；R: "
+          f"{' '.join(f'{R_t[i]:.3f}' for i in idx)} cm；色标 {c_lo:.4f}–{c_hi:.4f} kg/kg"
+          f"（=数据 min–max）；抽查 t={t_show[3]:g} h：" + "、".join(chk) +
+          f"、表面 C(R)={v_srf:.4f}；t={t_show[1]:g} h 表面 C(R)={v_srf5:.4f}", flush=True)
+    save(fig, "fig9_截面演化")
+
+
 FIGS = {"fig1": fig1, "fig2": fig2, "fig3": fig3, "fig5": fig5, "fig6": fig6,
-        "fig7": fig7}
+        "fig7": fig7, "fig8": fig8, "fig9": fig9}
 
 
 def main():
@@ -1110,7 +1303,7 @@ def main():
     ap.add_argument("--no-cache", action="store_true", help="fig4 对照曲线强制重算")
     a = ap.parse_args()
     plt.rcParams.update(RC)
-    want = a.only or ["fig1", "fig2", "fig3", "fig4", "fig5", "fig6", "fig7"]
+    want = a.only or ["fig1", "fig2", "fig3", "fig4", "fig5", "fig6", "fig7", "fig8", "fig9"]
     for k in want:
         print(f"[{k}] 作图 …", flush=True)
         if k == "fig4":
@@ -1119,7 +1312,7 @@ def main():
             FIGS[k]()
 
     print("\n[审计汇总] 图 | 设计尺寸(in) | 纵横比 | 最小字号(pt) | 标题≤28 | 图例项 | 刻度重叠 | "
-          "柱基线 | 裁切文字 | 图内文字块 | colorbar | 3D | 嵌入位图 | 密集标记 | 结论")
+          "柱基线 | 裁切文字 | 图内文字块 | colorbar(须带label) | 3D面板 | 嵌入位图 | 密集标记 | 结论")
     for r in AUDIT:
         print(f"  {r['stem']:<22} {r['w']:.1f}×{r['h']:.1f} | {r['aspect']:.2f} | "
               f"{r['min_font']:.1f} | {max((len(t) for t in r['titles']), default=0)} | "
