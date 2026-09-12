@@ -198,6 +198,14 @@ def read_json(name):
     return json.loads((DATA_DIR / name).read_text(encoding="utf-8"))
 
 
+def log_minor_off(ax, which="both"):
+    """关闭对数轴的副刻度标签：matplotlib 会给落在视图外的副刻度也生成标签文本（axes=None），
+    审计会把它们算作“裁切文字”。视觉上无变化（副刻度标签默认极密，正式图不用）。"""
+    for axis, name in ((ax.xaxis, "x"), (ax.yaxis, "y")):
+        if which in ("both", name):
+            axis.set_minor_formatter(matplotlib.ticker.NullFormatter())
+
+
 def crossing_time(t, y, th):
     """y(t) 自上方穿越 th 的线性插值时刻（t 升序）。"""
     i = int(np.argmax(y < th))
@@ -273,13 +281,18 @@ AUDIT: list[dict] = []
 
 def tick_texts(axis):
     """仅返回**视图范围内**可见的刻度文字（get_xticklabels 会带上范围外、
-    尺寸为 None 的隐藏刻度，拿去判裁切会得到假阳性）。3D 轴（Axis3D）走回退分支。"""
+    尺寸为 None 的隐藏刻度，拿去判裁切会得到假阳性）。3D 轴（Axis3D）走回退分支。
+
+    容差必须**相对**（2026-09-12 修正）：原实现用绝对 1e-9，对量级 1e-11 的坐标轴
+    （如 fig15(c) 的守恒残差）等于无穷大，会把视图外一个数量级的对数刻度也算成
+    “已绘制”，进而被误报为“裁切文字”。"""
     try:
         lo, hi = sorted(axis.get_view_interval())
+        tol = 1e-9 * max(abs(lo), abs(hi), 1e-300)
         out = []
         for tick in axis.get_major_ticks():
             loc = float(tick.get_loc())
-            if lo - 1e-9 <= loc <= hi + 1e-9:
+            if lo - tol <= loc <= hi + tol:
                 labs = [tick.label1] + ([tick.label2]
                                         if tick.label2.get_text().strip() else [])
                 out += [t for t in labs if t.get_visible()]
@@ -302,11 +315,20 @@ def _unreliable_extent(t):
     return False
 
 
+def all_axes(fig):
+    """图中**全部**坐标轴，含 inset（`ax.inset_axes` 建的子轴不在 `fig.axes` 里，
+    fig8 的竖排 colorbar 就是 inset；不纳入审计会漏检它的 label 与文字裁切）。"""
+    out = list(fig.axes)
+    for ax in list(fig.axes):
+        out += [c for c in getattr(ax, "child_axes", []) if c not in out]
+    return out
+
+
 def drawn_texts(fig):
     """图中**实际绘制**的文字（白名单遍历）——fig.findobj(Text) 会连带返回
     刻度/数学排版留下的孤立 Text（axes=None），不能用来判裁切与字号。"""
     out = list(fig.texts)
-    for ax in fig.axes:
+    for ax in all_axes(fig):
         out += list(ax.texts) + [ax.title, ax.xaxis.label, ax.yaxis.label]
         out += tick_texts(ax.xaxis) + tick_texts(ax.yaxis)
         lg = ax.get_legend()
@@ -356,13 +378,13 @@ def audit_figure(fig, stem, pdf_path):
     # 图注（fig.text）不得压住任何面板的 x 轴标签
     for t in fig.texts:
         tb = t.get_window_extent(renderer=ren)
-        for ax in fig.axes:
+        for ax in all_axes(fig):
             lab = ax.xaxis.label
             if lab.get_text().strip() and _overlap(tb, lab.get_window_extent(renderer=ren),
                                                    tol=0.0):
                 rec["cap_hit"].append(f"{t.get_text()[:12]}↔{lab.get_text()[:12]}")
 
-    for ax in fig.axes:
+    for ax in all_axes(fig):
         if ax.get_title():
             rec["titles"].append(ax.get_title())
         lg = ax.get_legend()
@@ -403,7 +425,7 @@ def audit_figure(fig, stem, pdf_path):
     rec["embed_img"] = pdf_path.read_bytes().count(b"/Subtype /Image")
     # 场图（imshow 热图/圆盘）本质是栅格数据，允许每张场图面板嵌入 1 张位图；
     # colorbar 的色带也用一条窄图绘制。除此之外的嵌入位图 = 图被栅格化，判 FAIL。
-    rec["raster_ax"] = sum(1 for ax in fig.axes if ax.get_images())
+    rec["raster_ax"] = sum(1 for ax in all_axes(fig) if ax.get_images())
     rec["img_ok"] = rec["embed_img"] <= rec["raster_ax"] + rec["cb"]
     # 文字裁切检查：bbox=None 精确出图，超出画布的文字会被静默切掉
     ren = fig.canvas.get_renderer()
@@ -562,70 +584,79 @@ def fig1():
 
 # ====================== F2 问题1 解析对拍 ======================
 def fig2():
+    """(a) 特征位置温度时程：中心 r=0 与表面 r=R₀ 的数值解 vs 半解析解；
+    (b) 偏差 |T_num−T 解析| 时程（对数纵轴），标出四位小数输出分辨率 5e-5 ℃。
+
+    数据源 03-数据/q1_fields.npz（times/T_C/Ts，1 s 网格 0–1800 s）、
+    03-数据/v1_points_final.csv（对拍点的 T_num/T_analytic/abs_dev）；
+    半解析解由 02-代码/analytic_heat.py 的 Robin 谱解现算（300 模，0–1800 s 同网格）。
+    """
     from analytic_heat import RobinCylinder
     from solver_q1 import ALPHA, BI_H, R0, T0_K
 
     d = np.load(DATA_DIR / "q1_fields.npz")
-    times_arr, pos_cm = d["times"], d["pos_cm"]
-    T_C = d["T_C"]                                   # (1800, 21) ℃
+    t_s, pos_cm, T_C, Ts = d["times"], d["pos_cm"], d["T_C"], d["Ts"]
     env_t, env_Ta = d["env_t"], d["env_Ta"]
-    t_show = [100, 600, 1800]
-    ana = RobinCylinder(BI_H, ALPHA, R0, n_modes=300)
-    r_dense = np.linspace(0.0, R0, 401)
-    T_ana = ana.eval(r_dense, np.array(t_show, float), env_t, env_Ta - T0_K, T0_K) - 273.15
-
     _, pts = read_csv_rows("v1_points_final.csv")
     dev_max = max(float(p["abs_dev"]) for p in pts)
-    head, conv = read_csv_rows("v1_convergence.csv")
-    data_rows = [c for c in conv if c[head[0]] != "order(fit)"]
-    Ns = np.array([float(c[head[0]]) for c in data_rows])
-    errs = np.array([[float(c[h]) for h in head[1:]] for c in data_rows])
-    order_row = [c for c in conv if c[head[0]] == "order(fit)"][0]
-    orders = [float(order_row[h]) for h in head[1:]]
 
-    fig, ax = plt.subplots(figsize=(W_SINGLE, 3.2))
-    fig.subplots_adjust(left=0.135, right=0.975, top=0.875, bottom=0.17)
-    mk = ["o", "s", "^"]
-    handles = []
-    for k, ts in enumerate(t_show):
-        col = TIME_CMAP(0.15 + 0.62 * k / max(len(t_show) - 1, 1))
-        idx = int(np.where(times_arr == ts)[0][0])
-        ax.plot(r_dense * 100, T_ana[k], color=col, lw=1.3, ls="-")
-        ax.plot(pos_cm, T_C[idx], ls="none", marker=mk[k], ms=3.6, mfc="white",
-                mec=col, mew=0.9)
-        handles.append(Line2D([], [], color=col, marker=mk[k], mfc="white", mec=col,
-                              lw=1.3, ms=3.6, label=f"$t$={ts} s"))
-    ax.set_xlabel("到药材中心的距离 $r$ / cm")
-    ax.set_ylabel("药材温度 $T$ / ℃")
-    ax.set_xlim(0, 2.05)
-    ax.set_ylim(27.4, 45.8)
-    style_axis(ax, grid="y")
-    ax.legend(handles=handles, loc="upper left", handlelength=1.8,
-              title="实线 解析解 / 空心点 数值解", title_fontsize=7.5)
-    panel(ax, "(a)", dx=-0.115)
-    tile(ax, "问题1 温度场：解析 vs 数值")
+    ana = RobinCylinder(BI_H, ALPHA, R0, n_modes=300)
+    T_ana = ana.eval(np.array([0.0, R0]), t_s, env_t, env_Ta - T0_K, T0_K) - 273.15
+    T_ana_c, T_ana_s = T_ana[:, 0], T_ana[:, 1]
+    num_c, num_s = T_C[:, 0], Ts - 273.15        # npz 的 Ts 为开尔文，统一换 ℃
+    dev_c, dev_s = np.abs(num_c - T_ana_c), np.abs(num_s - T_ana_s)
+    res = 5e-5                                   # 四位小数输出分辨率 ℃
 
-    ins = ax.inset_axes([0.415, 0.475, 0.565, 0.455])
-    for k in range(errs.shape[1]):
-        col = TIME_CMAP(0.15 + 0.62 * k / max(errs.shape[1] - 1, 1))
-        ins.loglog(Ns, errs[:, k], color=col, marker=mk[k], ms=3.0, lw=1.1,
-                   label=f"$t$={t_show[k]} s，阶 {orders[k]:.3f}")
-    ref = errs[0, 0] * (Ns / Ns[0]) ** -2.0
-    ins.loglog(Ns, ref, color=ROLE["guide"], ls="--", lw=1.0, label="斜率 −2（二阶参考）")
-    ins.set_xlabel("网格数 $N$", fontsize=7.5, labelpad=0.5)
-    ins.set_ylabel("最大偏差 / ℃", fontsize=7.5, labelpad=1.0)
-    ins.tick_params(labelsize=7.5, pad=1.5)
-    ins.grid(True, which="both", **GRID_KW)
-    ins.set_axisbelow(True)
-    ins.legend(loc="lower left", fontsize=7.5, handlelength=1.6, labelspacing=0.22,
-               borderpad=0.25)
-    print(f"  [F2] 解析对拍最大偏差 {dev_max:.3e} ℃（四位小数分辨率 5e-05 ℃，低 "
-          f"{5e-5/dev_max:.0f} 倍），收敛阶 {orders}", flush=True)
+    fig, (axA, axB) = plt.subplots(2, 1, figsize=(W_SINGLE, 3.30), sharex=True,
+                                   gridspec_kw=dict(height_ratios=[1.30, 1.0]))
+    fig.subplots_adjust(left=0.145, right=0.975, top=0.885, bottom=0.155, hspace=0.22)
+    m = t_s / 60.0
+    for num, ana_, col, lab in ((num_c, T_ana_c, ROLE["model"], "中心 $r$=0"),
+                                (num_s, T_ana_s, ROLE["aux1"], "表面 $r$=$R_0$")):
+        axA.plot(m, ana_, color=col, lw=1.1, ls="--", label=f"{lab}：解析解")
+        axA.plot(m, num, color=col, lw=1.2, label=f"{lab}：数值解")
+    t_pt = [float(p["t_s"]) / 60.0 for p in pts if abs(float(p["r_cm"])) < 1e-9]
+    y_pt = [float(p["T_num_C"]) for p in pts if abs(float(p["r_cm"])) < 1e-9]
+    axA.plot(t_pt, y_pt, ls="none", marker="o", ms=3.0, mfc="white", mec=ROLE["model"],
+             mew=0.9, label="对拍点（表 4 的 V1）")
+    axA.set_ylabel("温度 $T$ / ℃")
+    axA.set_ylim(27.9, 37.6)
+    style_axis(axA, grid="y")
+    axA.legend(loc="upper left", ncol=2, handlelength=1.6, columnspacing=1.0,
+               labelspacing=0.24)
+    panel(axA, "(a)", dx=-0.115)
+    tile(axA, "特征位置温度时程：解析 vs 数值")
+
+    for dev_, col, lab in ((dev_c, ROLE["model"], "中心 $r$=0"),
+                           (dev_s, ROLE["aux1"], "表面 $r$=$R_0$")):
+        axB.semilogy(m, dev_, color=col, lw=1.1, label=lab)
+    axB.axhline(res, color=ROLE["guide"], ls=":", lw=1.0)
+    axB.text(29.4, res * 1.30, "输出分辨率 $5\\times10^{-5}$ ℃", fontsize=7.5, color="0.30",
+             ha="right", va="bottom")
+    axB.set_xlabel("时间 $t$ / min")
+    axB.set_ylabel("偏差 / ℃")
+    axB.set_xlim(0, 30)
+    style_axis(axB, grid="y")
+    axB.legend(loc="lower left", handlelength=1.6, labelspacing=0.24)
+    panel(axB, "(b)", dx=-0.115)
+    tile(axB, "偏差：全程低于 $3.2\\times10^{-6}$ ℃")
+
+    print(f"  [F2] 解析对拍：对拍点最大偏差 {dev_max:.3e} ℃（{len(pts)} 点，四位小数分辨率 "
+          f"{res:.0e} ℃，低 {res/dev_max:.0f} 倍）；1 s 网格 1800 点全程：中心 max "
+          f"{dev_c.max():.2e}、表面 max {dev_s.max():.2e} ℃；中心 1800 s 数值 {num_c[-1]:.4f} "
+          f"/ 解析 {T_ana_c[-1]:.4f} ℃；表面 1800 s 数值 {num_s[-1]:.4f} / 解析 {T_ana_s[-1]:.4f} ℃",
+          flush=True)
     save(fig, "fig2_问题1解析对拍")
 
 
 # ====================== F3 温湿剖面 ======================
 def fig3():
+    """多时刻径向剖面：温度（3 h 内）与水分浓度（全程）——线色按时间 viridis 映射，
+    每面板配竖直 colorbar（标"时间 (h)"），剖面用"散点+连线"（每 4 点一个标记）。
+
+    数据源 03-数据/q23_main_steps.npz（t、C、T）；t_f 与判据区间取自 q23_summary.json /
+    criteria.csv。定量读数是"时间色阶 + colorbar"，图例仅列 4 个代表时刻。
+    """
     d = np.load(DATA_DIR / "q23_main_steps.npz")
     t, C, T = d["t"], d["C"], d["T"]
     pos_cm = np.arange(C.shape[1]) * 0.1
@@ -638,57 +669,52 @@ def fig3():
         i = int(np.argmin(np.abs(t - h * 3600)))
         return field[i].copy()
 
-    t_T = [0.1, 0.25, 0.5, 1.0, 2.0, 3.0]           # 预热平衡段（问题2 表3 的 3 h 内）
-    t_C = [0.5, 3.0, 12.0, 24.0, 36.0, 57.0]        # 全程（问题3，至 t_f≈57.2 h）
+    t_T = [0.25, 1.0, 2.0, 3.0]          # 预热平衡段（问题 2 表 3 的 3 h 内）
+    t_C = [0.5, 12.0, 36.0, 57.0]        # 全程（问题 3，至 t_f≈57.2 h）
 
-    fig, (axT, axC) = plt.subplots(1, 2, figsize=(W_DOUBLE, 3.4))
-    fig.subplots_adjust(left=0.082, right=0.982, top=0.865, bottom=0.155, wspace=0.26)
-    legT, legC = [], []
-    for k, h in enumerate(t_T):
-        col = TIME_CMAP(0.95 - 0.80 * k / (len(t_T) - 1))
-        axT.plot(pos_cm, prof(T, h), color=col, lw=1.2)
-        legT.append(Line2D([], [], color=col, lw=1.2, label=f"$t$={h:g} h"))
-    for k, h in enumerate(t_C):
-        col = TIME_CMAP(0.10 + 0.80 * k / (len(t_C) - 1))
-        axC.plot(pos_cm, prof(C, h), color=col, lw=1.2)
-        legC.append(Line2D([], [], color=col, lw=1.2, label=f"$t$={h:g} h"))
-    for k, h in enumerate(t_C):      # 中心（r=0）标记：尾段拖长的直观证据
-        col = TIME_CMAP(0.10 + 0.80 * k / (len(t_C) - 1))
-        axC.plot([0], [prof(C, h)[0]], marker="o", ms=3.6, color=col, clip_on=False, zorder=5)
+    fig = plt.figure(figsize=(W_DOUBLE, 3.4))
+    axT = fig.add_axes([0.068, 0.170, 0.298, 0.690])
+    caxT = fig.add_axes([0.374, 0.170, 0.014, 0.690])
+    axC = fig.add_axes([0.565, 0.170, 0.298, 0.690])
+    caxC = fig.add_axes([0.871, 0.170, 0.014, 0.690])
 
-    Ta_end = float(T[-1].max())
-    axT.set_xlabel("到药材中心的距离 $r$ / cm")
-    axT.set_ylabel("药材温度 $T$ / ℃")
-    axT.set_xlim(0, 2.02)
+    for ax, cax, tt, field, ylab, ttl, tag in (
+            (axT, caxT, t_T, T, "药材温度 $T$ / ℃", "温度剖面：3 h 内近准稳态", "(a)"),
+            (axC, caxC, t_C, C, "水分浓度 $C$ / (kg/kg)", "水分剖面：中心最慢", "(b)")):
+        norm = matplotlib.colors.Normalize(vmin=min(tt), vmax=max(tt))
+        handles = []
+        for h in tt:
+            col = TIME_CMAP(norm(h))
+            ax.plot(pos_cm, prof(field, h), color=col, lw=1.2, marker="o", ms=2.0,
+                    markevery=4, mfc="white", mec=col, mew=0.7)
+            handles.append(Line2D([], [], color=col, lw=1.2, label=f"$t$={h:g} h"))
+        cb = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=TIME_CMAP), cax=cax)
+        cb.set_label("时间 $t$ / h", fontsize=7.5)
+        cb.ax.tick_params(labelsize=7.5)
+        cb.set_ticks(tt)
+        ax.set_xlabel("到药材中心的距离 $r$ / cm")
+        ax.set_ylabel(ylab)
+        ax.set_xlim(0, 2.02)
+        style_axis(ax, grid="y")
+        ax.legend(handles=handles, loc="upper left", ncol=2, handlelength=1.4,
+                  columnspacing=0.9, labelspacing=0.26)
+        panel(ax, tag)
+        tile(ax, ttl)
     axT.set_ylim(27.0, 58.5)
-    style_axis(axT, grid="y")
-    axT.legend(handles=legT, loc="upper left", ncol=2, handlelength=1.4,
-               columnspacing=1.0, labelspacing=0.28)
-    panel(axT, "(a)")
-    tile(axT, "温度剖面：3 h 内即准稳态")
-
-    axC.set_xlabel("到药材中心的距离 $r$ / cm")
-    axC.set_ylabel("水分浓度 $C$ / (kg/kg)")
-    axC.set_xlim(0, 2.02)
     axC.set_ylim(0.0, 3.15)
-    style_axis(axC, grid="y")
     axC.axhline(TH, color=ROLE["guide"], ls="--", lw=1.1)
-    axC.text(2.0, TH + 0.15, f"阈值 {TH} kg/kg", ha="right", va="bottom",
-             fontsize=7.5, color="0.30")
-    axC.legend(handles=legC, loc="upper left", ncol=2, handlelength=1.4,
-               columnspacing=1.0, labelspacing=0.28)
+    # 阈值线直接进 y 刻度（0.15 这个刻度即达标阈值），避免图内文字压曲线
+    axC.set_yticks([0.0, TH, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0])
     c36, c57 = prof(C, 36.0)[0], prof(C, 57.0)[0]
     cs57 = prof(C, 57.0)[-1]
     axC.annotate("中心最慢\n（$r$=0，尾段拖长）", xy=(0.02, 0.5 * (c36 + c57)),
-                 xytext=(0.13, 0.36), textcoords="axes fraction", fontsize=7.5,
+                 xytext=(0.13, 0.30), textcoords="axes fraction", fontsize=7.5,
                  ha="left", va="top",
                  arrowprops=dict(arrowstyle="-|>", lw=0.7, color="0.35"))
-    panel(axC, "(b)")
-    tile(axC, "水分剖面：中心最慢")
-
+    Ta_end = float(T[-1].max())
     print(f"  [F3] t_f={tf_h:.3f} h；中心 {c57:.4f} / 表面 {cs57:.4f}；36→57 h 中心降 "
-          f"{c36-c57:.4f}；Le={le_txt}；t={t_T[-1]:g} h 全径 {Ta_end-0.4:.1f}–{Ta_end:.1f} ℃",
-          flush=True)
+          f"{c36-c57:.4f}；Le={le_txt}；t={t_T[-1]:g} h 全径 {Ta_end-0.4:.1f}–{Ta_end:.1f} ℃；"
+          f"时间色阶 viridis（4 时刻/面板）+ 竖直 colorbar", flush=True)
     save(fig, "fig3_温湿剖面")
 
 
@@ -1228,67 +1254,80 @@ def fig7():
 
 # ====================== F8 药柱 3D 时空演化 ======================
 def fig8():
-    """问题4 内生版药柱的时空场：C(r,t) 与 T(r,t) 曲面（r 方向随 R(t) 内缩）。
+    """问题 4 内生版药柱的时空场：两张 3D 曲面，定量读数交给 fig12/fig13/fig16。
 
-    数据源 03-数据/q4_endo_fields.npz（见同目录 README）：固定物理网格 r_cm、帧间隔 360 s、
-    r>R(t) 处为 NaN（画面上即“域随半径收缩”的自由边），R_t 为闭合 C 预测的外半径。
+    (a) 水分浓度场 $C(s,t)$：$s=r/R(t)$ 归一化（拉格朗日）坐标——移动域被拉直，
+        壳核结构与表面轨迹一眼可见（viridis）；
+    (b) 温度场 $T(r,t)$：固定物理网格 $r$（域外 $r>R(t)$ 处为 NaN，自由边即半径收缩；
+        coolwarm）。低仰角视角、竖排 colorbar 带单位。
+    数据源 03-数据/q4_endo_fields.npz（t_s/r_cm/C/T/R_t/Cs）。
     """
     d = np.load(DATA_DIR / "q4_endo_fields.npz")
     t_s, r_cm = d["t_s"], d["r_cm"]
-    C, T, R_t = d["C"], d["T"], d["R_t"]
+    C, T, R_t, Cs = d["C"], d["T"], d["R_t"], d["Cs"]
     h = t_s / 3600.0
 
     ti = np.arange(0, len(h), 4)          # 507 帧抽稀到 127，保持 R(t) 边界分辨率
     ri = np.arange(0, len(r_cm), 2)       # 101 网格抽稀到 51
-    TT, RR = np.meshgrid(h[ti], r_cm[ri], indexing="ij")
-    ZC, ZT = C[np.ix_(ti, ri)], T[np.ix_(ti, ri)]
+    hh, rr = h[ti], r_cm[ri]
+    TT, RR = np.meshgrid(hh, rr, indexing="ij")
+    ZT = T[np.ix_(ti, ri)]
+    ZC = C[np.ix_(ti, ri)]
+    SS = (r_cm / R_t[:, None])[np.ix_(ti, ri)]     # s = r/R(t) ∈ [0,1]（域外为 NaN）
 
     c_lo, c_hi = float(np.nanmin(C)), float(np.nanmax(C))
     t_lo, t_hi = float(np.nanmin(T)), float(np.nanmax(T))
-    # 抽查：第 1/3、2/3 帧在 r=R(t) 处的 C（与 npz 原值逐点核对，见 stdout）
     probe = [(len(h) // 3, int(np.sum(~np.isnan(C[len(h) // 3]))) - 1),
              (2 * len(h) // 3, int(np.sum(~np.isnan(C[2 * len(h) // 3]))) - 1)]
 
     fig = plt.figure(figsize=(W_DOUBLE, 3.8))
-    rects = [(0.040, 0.290, 0.395, 0.515), (0.535, 0.290, 0.395, 0.515)]
-    caxs = [(0.115, 0.112, 0.205, 0.026), (0.610, 0.112, 0.205, 0.026)]
-    specs = ((ZC, "viridis", c_lo, c_hi, "(a)", "水分场 $C(r,t)$：锋面内移"),
-             (ZT, "magma", t_lo, t_hi, "(b)", "温度场 $T(r,t)$：热场准稳态"))
-    for (Z, cmap_name, lo, hi, tag, title), rect, crect in zip(specs, rects, caxs):
+    rects = [(0.030, 0.250, 0.395, 0.610), (0.545, 0.250, 0.395, 0.610)]
+    specs = ((SS, ZC, "viridis", c_lo, c_hi, "(a)", "水分场：拉格朗日坐标 $s$",
+              "水分浓度 $C$ / (kg/kg)", "$s = r/R(t)$"),
+             (RR, ZT, "coolwarm", t_lo, t_hi, "(b)", "温度场：固定网格 $r$",
+              "温度 $T$ / ℃", "$r$ / cm"))
+    for (X, Z, cmap_name, lo, hi, tag, title, cbl, xlab), rect in zip(specs, rects):
         ax = fig.add_axes(rect, projection="3d")
         cmap = plt.get_cmap(cmap_name).copy()
         cmap.set_bad(alpha=0.0)           # 域外（NaN）不画
         norm = matplotlib.colors.Normalize(vmin=lo, vmax=hi)
-        ax.plot_surface(RR, TT, Z, cmap=cmap, norm=norm, rcount=Z.shape[1],
+        ax.plot_surface(X, TT, Z, cmap=cmap, norm=norm, rcount=Z.shape[1],
                         ccount=Z.shape[0], linewidth=0, antialiased=False, shade=False)
-        # 底面画出 R(t)：域外（r>R(t)）无曲面，这条线即“半径随时间收缩”的直接证据
-        ax.plot(R_t[ti], h[ti], zs=lo, zdir="z", color=ROLE["data"], lw=1.2, zorder=10)
-        ax.text(1.72, 18.0, lo, " $R(t)$", fontsize=7.5, color=ROLE["data"], zorder=20)
-        ax.set_xlim(0, 2.0)
+        if tag == "(a)":
+            ax.plot(np.ones_like(hh), hh, Cs[ti], color=ROLE["data"], lw=1.4, zorder=10)
+            ax.text(0.86, 40.0, float(np.nanmax(Cs)) * 0.62, " 表面轨迹", fontsize=7.5,
+                    color=ROLE["data"], zorder=20)
+            ax.set_xticks([0.0, 0.25, 0.5, 0.75, 1.0])
+        else:
+            ax.plot(R_t[ti], hh, zs=lo, zdir="z", color=ROLE["data"], lw=1.2, zorder=10)
+            ax.text(1.66, 16.0, lo, " $R(t)$", fontsize=7.5, color=ROLE["data"], zorder=20)
+            ax.set_xticks([0.5, 1.0, 1.5, 2.0])
+        ax.set_xlim(0, 1.0 if tag == "(a)" else 2.0)
         ax.set_ylim(0, float(h[-1]))
         ax.set_zlim(lo, hi)
-        ax.set_xticks([0.5, 1.0, 1.5, 2.0])      # 不标 r=0：与 t 轴原点的 0 重合
         ax.set_yticks([0, 10, 20, 30, 40, 50])
         ax.set_zticks([np.round(v, 2) for v in np.linspace(lo, hi, 3)])
-        ax.set_xlabel("$r$ / cm", labelpad=3)
+        ax.set_xlabel(xlab, labelpad=3)
         ax.set_ylabel("$t$ / h", labelpad=3)
-        ax.set_zlabel("$C$ / (kg/kg)" if tag == "(a)" else "$T$ / ℃", labelpad=2)
+        ax.set_zlabel(cbl.split(" / ")[0] + " / " + cbl.split(" / ")[1], labelpad=2)
         ax.tick_params(labelsize=7.5, pad=1)
-        ax.view_init(elev=22, azim=-122)
-        ax.set_box_aspect((1.0, 1.5, 0.95), zoom=1.32)
-        cax = fig.add_axes(crect)
+        ax.view_init(elev=20, azim=-118 if tag == "(a)" else -122)
+        ax.set_box_aspect((1.0, 1.5, 0.95), zoom=1.26)
+        # 竖排 colorbar 放在面板内右侧（外部放会与相邻 3D 面板的 z 轴标签/刻度相撞）
+        cax = ax.inset_axes([0.885, 0.20, 0.042, 0.58])
         cb = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap), cax=cax,
-                          orientation="horizontal")
-        cb.set_label("水分浓度 $C$ / (kg/kg)" if tag == "(a)" else "温度 $T$ / ℃",
-                     fontsize=7.5)
+                          orientation="vertical")
+        cb.set_label(cbl, fontsize=7.5)
         cb.ax.tick_params(labelsize=7.5)
         panel(ax, tag, dx=0.005)
         tile(ax, title)
 
     print(f"  [F8] C 全域 {c_lo:.4f}–{c_hi:.4f} kg/kg；T 全域 {t_lo:.2f}–{t_hi:.2f} ℃；"
           f"R {R_t[0]:.4f}→{R_t[-1]:.4f} cm（{h[0]:.2f}–{h[-1]:.2f} h，{len(h)} 帧）；"
+          f"拉格朗日坐标 $s$=r/R(t)∈[0,1]（面板 a）、温度用固定 $r$（面板 b）；"
           f"抽查 C[i={probe[0][0]}, r={r_cm[probe[0][1]]:.2f}]={C[probe[0]]:.5f}、"
-          f"C[i={probe[1][0]}, r={r_cm[probe[1][1]]:.2f}]={C[probe[1]]:.5f}", flush=True)
+          f"C[i={probe[1][0]}, r={r_cm[probe[1][1]]:.2f}]={C[probe[1]]:.5f}；"
+          f"表面末值 $C_s$={Cs[-1]:.4f} kg/kg", flush=True)
     save(fig, "fig8_药柱3D演化")
 
 
@@ -1499,8 +1538,493 @@ def fig10():
     save(fig, "fig10_力学升级")
 
 
+# ====================== F11 扩散系数与特征时间尺度 ======================
+def fig11():
+    """(a) 三族附录物性的 D(C) 曲线（y 对数轴）＋ D4/D3 比值区间；(b) 特征时间尺度（log 横轴）。
+
+    数据源：D 公式直接取自 02-代码/solver_q1.py（附录2）、solver_q23.py（附录3）、
+    solver_q4.py（附录4），并落盘 03-数据/D_of_C.csv 供复现与论文图注引用；
+    时间尺度取自 03-数据/v3_bound.csv（问题 3 口径）与 03-数据/q4_bound.csv（问题 4 口径）。
+    """
+    from solver_q1 import D_of_C as D2, R0, T0_K
+    from solver_q23 import D_of as D3
+    from solver_q4 import D_of4 as D4
+
+    C = np.linspace(0.15, 2.55, 241)
+    T_ref, T_hot = float(T0_K), 323.315
+    cols = np.column_stack([C, D2(C), D3(C, T_ref), D4(C, T_ref), D3(C, T_hot), D4(C, T_hot)])
+    hdr = ["# D_of_C.csv —— 三族附录物性扩散系数（fig11(a) 的唯一数据源）",
+           "# 公式取自 02-代码/solver_q1.py（附录2）、solver_q23.py（附录3）、solver_q4.py（附录4）",
+           "# 附录2 D=7e-9*exp(-0.89/C)（只依赖 C）；附录3 D=2.4e-3*exp(-0.45/C)*exp(-3850/T)；",
+           "# 附录4 D=4.2e-4*exp(-0.30/C)*exp(-3850/T)；T 开尔文、C 干基含水率 kg/kg",
+           "# T_ref=301.15 K（初温）、T_hot=323.315 K（环境温度上界）；生成：python plot_all.py fig11",
+           "C_kg_kg,D_apx2_m2_s,D_apx3_Tref_m2_s,D_apx4_Tref_m2_s,D_apx3_Thot_m2_s,D_apx4_Thot_m2_s"]
+    with open(DATA_DIR / "D_of_C.csv", "w", encoding="utf-8", newline="") as f:
+        f.write("\n".join(hdr) + "\n")
+        for r in cols:
+            f.write(",".join(f"{v:.8g}" for v in r) + "\n")
+
+    r_at_c0 = float(D4(2.55, T_ref) / D3(2.55, T_ref))
+    r_at_cmin = float(D4(0.15, T_ref) / D3(0.15, T_ref))
+    _, v3 = read_csv_rows("v3_bound.csv")
+    _, q4 = read_csv_rows("q4_bound.csv")
+    k3 = {r["quantity"]: float(r["value"]) for r in v3}
+    k4 = {r["quantity"]: float(r["value"]) for r in q4}
+    t_diff3 = R0 ** 2 / (k3["D_max"] * k3["lam1"] ** 2) / 3600.0      # 现算 R²/(D_max λ₁²) /h
+
+    fig, (axA, axB) = plt.subplots(1, 2, figsize=(W_DOUBLE, 3.4))
+    fig.subplots_adjust(left=0.105, right=0.985, top=0.865, bottom=0.175, wspace=0.60)
+
+    # ---- (a) D(C) 三族曲线（附录 3/4 的 D 还随 T 变，另有 ×2.4 量级——为避免遮挡不叠虚线，
+    #      该倍数在 stdout 与图注里给出）----
+    specs = ((D2(C), ROLE["data"], "-", "附录 2（只依赖 $C$）"),
+             (D3(C, T_ref), ROLE["model"], "-", "附录 3（$T$=301.15 K）"),
+             (D4(C, T_ref), ROLE["ref"], "-", "附录 4（$T$=301.15 K）"))
+    for y, col, ls, lab in specs:
+        axA.semilogy(C, y, color=col, ls=ls, lw=1.2, label=lab)
+    axA.axvline(2.55, color="0.80", lw=0.7, ls=":")
+    axA.axvline(0.15, color="0.80", lw=0.7, ls=":")
+    axA.set_xlabel("干基含水率 $C$ / (kg/kg)")
+    axA.set_ylabel("扩散系数 $D$ / (m$^2$/s)")
+    axA.set_xlim(0, 2.75)
+    axA.set_ylim(1e-13, 4e-8)
+    style_axis(axA, grid="y")
+    axA.legend(loc="lower right", handlelength=1.8, labelspacing=0.26)
+    note(axA, f"$D_4/D_3=0.175\\,e^{{0.15/C}}$：\n1/{1/r_at_c0:.2f}（$C$=2.55）"
+              f" → 1/{1/r_at_cmin:.2f}（$C$=0.15）", xy=(0.985, 0.985), fs=7.5)
+    panel(axA, "(a)", dx=-0.115)
+    tile(axA, "扩散系数：三族附录物性")
+
+    # ---- (b) 特征时间尺度（log 横轴）----
+    items = [("膜界参考（附 3）", k3["t_film_h"], 0),
+             ("首模参考（附 3）", k3["t_ref_h"], 0),
+             ("$R^2/(D_{\\max}\\lambda_1^2)$", t_diff3, 2),
+             ("膜界参考（附 4）", k4["t_film_h"], 1),
+             ("$R_{\\min}$ 常值（附 4）", k4["t_rmin_h"], 1),
+             ("时间积分版（附 4）", k4["t_int_h"], 1),
+             ("固定 $R_0$ 版（附 4）", k4["t_r0_h"], 1)]
+    items.sort(key=lambda x: x[1])
+    ycol = [ROLE["model"], ROLE["ref"], OI["grey"]]
+    ys = np.arange(len(items))[::-1]
+    axB.barh(ys, [v for _, v, _ in items], color=[ycol[k] for _, _, k in items],
+             height=0.62, zorder=3)
+    axB.set_yticks(ys)
+    axB.set_yticklabels([n for n, _, _ in items], fontsize=7.5)
+    for y, (_, v, _) in zip(ys, items):
+        axB.text(v * 1.16, y, f"{v:.2f} h", va="center", ha="left", fontsize=7.5)
+    axB.set_xscale("log")
+    axB.set_xlim(3.0, 130)
+    axB.set_xlabel("特征时间尺度 / h（对数轴）")
+    style_axis(axB, grid="x")
+    # 颜色语义已在 y 轴标签内（附 3 / 附 4 / 现算）：不再放图例，避免压住条形与数值标注
+    panel(axB, "(b)", dx=-0.115)
+    tile(axB, "特征时间尺度：口径对照")
+    log_minor_off(axA)
+    log_minor_off(axB, which="x")
+
+    print(f"  [F11] D 区间：附录2 {D2(C)[0]:.3e}–{D2(C)[-1]:.3e}、附录3 {D3(C, T_ref)[0]:.3e}–"
+          f"{D3(C, T_ref)[-1]:.3e}、附录4 {D4(C, T_ref)[0]:.3e}–{D4(C, T_ref)[-1]:.3e} m²/s；"
+          f"D4/D3={r_at_c0:.4f}（C=2.55，1/{1/r_at_c0:.2f}）→{r_at_cmin:.4f}（C=0.15，1/{1/r_at_cmin:.2f}）；"
+          f"T 由 301.15→323.32 K 的倍数（图内未叠虚线）：附录3 ×{float(D3(C, T_hot)[-1]/D3(C, T_ref)[-1]):.2f}、"
+          f"附录4 ×{float(D4(C, T_hot)[-1]/D4(C, T_ref)[-1]):.2f}；"
+          f"现算 R²/(D_max·λ₁²)={t_diff3:.4f} h（v3_bound: D_max={k3['D_max']:.4e}、λ₁={k3['lam1']:.4f}）；"
+          f"时标 {len(items)} 条（{items[0][1]:.3f}–{items[-1][1]:.3f} h；蓝=附3口径、橙=附4口径、灰=现算）；"
+          f"落盘 03-数据/D_of_C.csv", flush=True)
+    save(fig, "fig11_扩散系数与时间尺度")
+
+
+# ====================== F12 温度场时空云图 ======================
+def fig12():
+    """问题 1 温度场时空云图：x=时间、y=径向位置、色=温度（coolwarm）+ 等值线。
+
+    数据源 03-数据/q1_fields.npz（1800 帧 × 21 径向位置，0–1800 s、0–2 cm）。
+    定量读数由本图承担（精度校验见图 2 的偏差面板、收敛见图 15）。
+    """
+    d = np.load(DATA_DIR / "q1_fields.npz")
+    t_s, pos_cm, T_C = d["times"], d["pos_cm"], d["T_C"]
+    ti = np.arange(0, len(t_s), 4)                       # 1800 → 450 帧
+    Z = T_C[np.ix_(ti, np.arange(len(pos_cm)))].T        # → (径向, 时间)
+    lo, hi = float(Z.min()), float(Z.max())
+
+    fig, ax = plt.subplots(figsize=(W_DOUBLE, 3.4))
+    fig.subplots_adjust(left=0.088, right=0.848, top=0.862, bottom=0.178)
+    lv = np.linspace(lo - 1e-9, hi + 1e-9, 49)
+    cf = ax.contourf(t_s[ti], pos_cm, Z, levels=lv, cmap="coolwarm", extend="both")
+    cs = ax.contour(t_s[ti], pos_cm, Z, levels=8, colors="0.20", linewidths=0.45, alpha=0.75)
+    ax.clabel(cs, inline=True, fontsize=7.5, fmt="%.1f")
+    cax = fig.add_axes([0.864, 0.178, 0.020, 0.684])
+    cb = fig.colorbar(cf, cax=cax)
+    cb.set_label("温度 $T$ / ℃", fontsize=7.5)
+    cb.ax.tick_params(labelsize=7.5)
+    ax.set_xlabel("时间 $t$ / s")
+    ax.set_ylabel("径向位置 $r$ / cm")
+    ax.set_xlim(0, float(t_s[ti][-1]))
+    ax.set_ylim(0, float(pos_cm[-1]))
+    style_axis(ax, grid="none")
+    ax.plot([0, 0], [0, 2], color="0.30", lw=0.9, ls=":")
+    ax.text(60, 1.72, "中心 $r$=0（最慢）", fontsize=7.5, color="0.15")
+    ax.text(1500, 0.12, "表面 $r$=2 cm（最先升温）", fontsize=7.5, color="0.15", ha="right")
+    panel(ax, "(a)", dx=-0.075)
+    tile(ax, "温度场：0.5 h 内近准稳态")
+
+    print(f"  [F12] 问题1 温度场云图：$t$ 0–{t_s[ti][-1]/60:.1f} min、$r$ 0–{pos_cm[-1]:.2f} cm、"
+          f"{len(ti)}×{len(pos_cm)} 网格；$T$ 全域 {lo:.3f}–{hi:.3f} ℃；"
+          f"中心 1800 s={Z[0, -1]:.4f} ℃、表面 1800 s={Z[-1, -1]:.4f} ℃；"
+          f"口径：colorbar 温度(℃) + 8 条等温线；定量精度见图 2", flush=True)
+    save(fig, "fig12_温度场时空云图")
+
+
+# ====================== F13 水分场时空云图 ======================
+def fig13():
+    """问题 2/3 水分场时空云图：x=时间(h)、y=径向位置(cm)、色=干基含水率（viridis）
+    + 0.15 达标等值线（壳核分界）+ 壳核结构标注。
+
+    数据源 03-数据/q23_main_steps.npz（t、C；固定 R=2 cm 口径）。
+    """
+    d = np.load(DATA_DIR / "q23_main_steps.npz")
+    t_h = d["t"] / 3600.0
+    C = d["C"]
+    pos_cm = np.arange(C.shape[1]) * 0.1
+    ti = np.arange(0, len(t_h), 60)                      # 26130 → 436 帧
+    Z = C[np.ix_(ti, np.arange(len(pos_cm)))].T
+    tf_h = float(read_json("q23_summary.json")["tf_h"])
+
+    fig, ax = plt.subplots(figsize=(W_DOUBLE, 3.4))
+    fig.subplots_adjust(left=0.088, right=0.848, top=0.862, bottom=0.178)
+    cf = ax.contourf(t_h[ti], pos_cm, Z, levels=np.linspace(0.0, 2.6, 53), cmap=TIME_CMAP)
+    cs = ax.contour(t_h[ti], pos_cm, Z, levels=[TH], colors="white", linewidths=1.0)
+    ax.clabel(cs, fmt=f"{TH:.2f}", fontsize=7.5, colors="white")
+    cax = fig.add_axes([0.864, 0.178, 0.020, 0.684])
+    cb = fig.colorbar(cf, cax=cax)
+    cb.set_label("干基含水率 $C$ / (kg/kg)", fontsize=7.5)
+    cb.ax.tick_params(labelsize=7.5)
+    ax.axvline(tf_h, color=ROLE["ref"], lw=1.0, ls="--")
+    ax.text(tf_h - 1.2, 0.10, f"$t_f$={tf_h:.2f} h", fontsize=7.5, color=ROLE["ref"],
+            ha="right", va="bottom")
+    ax.text(46.0, 1.60, "干燥壳\n（$C$<0.15）", fontsize=7.5, color="white", ha="center")
+    ax.text(46.0, 0.42, "湿核\n（$C\\geq$0.15）", fontsize=7.5, color="0.85", ha="center")
+    ax.set_xlabel("时间 $t$ / h")
+    ax.set_ylabel("径向位置 $r$ / cm")
+    ax.set_xlim(0, float(t_h[ti][-1]))
+    ax.set_ylim(0, 2.02)
+    style_axis(ax, grid="none")
+    panel(ax, "(a)", dx=-0.075)
+    tile(ax, "水分场：干燥壳-湿核结构")
+
+    i_tf = int(np.argmin(np.abs(t_h - tf_h)))
+    shell = float(pos_cm[np.argmax(C[i_tf] < TH)]) if bool(np.any(C[i_tf] < TH)) else float("nan")
+    print(f"  [F13] 问题2/3 水分场云图：$t$ 0–{t_h[ti][-1]:.2f} h、$r$ 0–{pos_cm[-1]:.2f} cm、"
+          f"{len(ti)}×{len(pos_cm)} 网格；$C$ 全域 {float(np.nanmin(Z)):.4f}–{float(np.nanmax(Z)):.4f} kg/kg；"
+          f"$t_f$={tf_h:.4f} h 时 $C$<0.15 的壳起点 $r$={shell:.2f} cm（壳厚 {pos_cm[-1]-shell:.2f} cm）；"
+          f"中心末值 {Z[0, -1]:.4f}、表面末值 {Z[-1, -1]:.4f} kg/kg", flush=True)
+    save(fig, "fig13_水分场时空云图")
+
+
+# ====================== F14 表面通量与表面扩散系数 ======================
+def fig14():
+    """表面水分通量与表面扩散系数（问题 1，附录 2 物性）。
+
+    (a) 表面水通量 j_w(t)；(b) 表面扩散系数 D_s(t)（与 (a) 共享时间轴，不用双 Y 轴）；
+    (c) D_s 随表面含水率 C_s 的变化。
+    数据源 03-数据/q1_fields.npz（Cs/Ts/env_*）+ 公式现算，并落盘 03-数据/surface_flux.csv。
+    口径：j_w=ρ_d,s·h_m·(U_s−C_env)（正=脱湿）、ρ_d,s=(650+128·U_s)/(1+U_s)、D_s=D_附2(C_s)。
+    """
+    from solver_q1 import HM, D_of_C as D2, R0
+    d = np.load(DATA_DIR / "q1_fields.npz")
+    t_s = d["times"]
+    Cs, Ts = d["Cs"], d["Ts"]
+    env_t, env_C = d["env_t"], d["env_C"]
+    C_env = np.interp(t_s, env_t, env_C)
+    rho_ds = (650.0 + 128.0 * Cs) / (1.0 + Cs)
+    j_w = rho_ds * HM * (Cs - C_env)
+    D_s = D2(Cs)
+    out = np.column_stack([t_s, Cs, Ts, C_env, rho_ds, j_w, D_s])
+    hdr = ["# surface_flux.csv —— 问题 1 表面量分项（fig14 的唯一数据源）",
+           "# 口径：j_w=rho_d,s*h_m*(U_s-C_env) [kg 水/(m²·s)]，正=脱湿；h_m=8e-7 m/s（附录2 延用）",
+           "# rho_d,s=(650+128*U_s)/(1+U_s) [kg/m³]（附录2 湿密度 ρ=650+128C 除以 1+C，同 latent_scenario.py 口径）",
+           "# D_s=D_附2(C_s)=7e-9*exp(-0.89/C_s) [m²/s]；C_env 为附件1 环境水分（线性插值到 1 s 网格）",
+           "# 生成：python plot_all.py fig14",
+           "t_s,Cs_kg_kg,Ts_K,rho_d_s_kg_m3,j_w_kg_m2_s,D_s_m2_s"]
+    with open(DATA_DIR / "surface_flux.csv", "w", encoding="utf-8", newline="") as f:
+        f.write("\n".join(hdr[:5]) + "\n" + hdr[5] + ",C_env_kg_kg\n")
+        for r in out:
+            f.write(f"{r[0]:.0f},{r[1]:.6f},{r[2]:.4f},{r[4]:.4f},{r[5]:.6e},{r[6]:.6e},{r[3]:.6f}\n")
+
+    fig = plt.figure(figsize=(W_DOUBLE, 3.5))
+    gs = fig.add_gridspec(2, 2, width_ratios=[1.18, 1.0], wspace=0.34, hspace=0.16,
+                          left=0.135, right=0.985, top=0.865, bottom=0.175)
+    axJ = fig.add_subplot(gs[0, 0])
+    axD = fig.add_subplot(gs[1, 0], sharex=axJ)
+    axC = fig.add_subplot(gs[:, 1])
+    axJ.plot(t_s / 60.0, j_w, color=ROLE["model"], lw=1.2)
+    axJ.set_ylabel("$j_w$ / (kg/(m$^2$·s))")
+    axJ.tick_params(labelbottom=False)
+    style_axis(axJ, grid="y")
+    tile(axJ, "表面水通量：0.5 h 内峰值")
+    panel(axJ, "(a)", dx=-0.145)
+    axD.plot(t_s / 60.0, D_s / 1e-9, color=ROLE["ref"], lw=1.2)     # 以 1e-9 为单位显示
+    axD.set_ylabel("$D_s$ / ($10^{-9}$ m$^2$/s)")
+    axD.set_xlabel("时间 $t$ / min")
+    style_axis(axD, grid="y")
+    axC.plot(Cs, D_s / 1e-9, color=ROLE["ref"], lw=1.2)
+    axC.plot(Cs[::120], D_s[::120] / 1e-9, ls="none", marker="o", ms=2.6, mfc="white",
+             mec=ROLE["ref"], mew=0.8)
+    axC.set_xlabel("表面含水率 $C_s$ / (kg/kg)")
+    axC.set_ylabel("$D_s$ / ($10^{-9}$ m$^2$/s)")
+    style_axis(axC, grid="y")
+    panel(axC, "(b)", dx=-0.135)
+    tile(axC, "表面扩散系数随含水率")
+    axC.annotate(f"末值 $D_s$={D_s[-1]/1e-9:.2f}x$10^{{-9}}$", xy=(Cs[-1], D_s[-1] / 1e-9),
+                 xytext=(0.96, 0.06), textcoords="axes fraction", ha="right", va="bottom",
+                 fontsize=7.5, color="0.25",
+                 arrowprops=dict(arrowstyle="-|>", lw=0.7, color="0.45"))
+
+    print(f"  [F14] 问题1 表面量：$j_w$ {float(j_w.min()):.3e}–{float(j_w.max()):.3e} kg/(m²·s)"
+          f"（峰值 {t_s[int(np.argmax(j_w))]/60:.2f} min）；$D_s$ {float(D_s.min()):.3e}–"
+          f"{float(D_s.max()):.3e} m²/s（$C_s$ {float(Cs.min()):.4f}→{float(Cs.max()):.4f}）；"
+          f"$\\rho_{{d,s}}$ {float(rho_ds.min()):.1f}–{float(rho_ds.max()):.1f} kg/m³；"
+          f"$C_{{env}}$ {float(C_env.min()):.4f}–{float(C_env.max()):.4f} kg/kg；"
+          f"落盘 03-数据/surface_flux.csv（{len(t_s)} 行）", flush=True)
+    save(fig, "fig14_表面通量与表面扩散系数")
+
+
+# ====================== F15 收敛与守恒检验 ======================
+def fig15():
+    """(a) 问题 1 温度场误差收敛（双对数 + 二阶参考斜率）；(b) t_f 网格收敛（双对数）；
+    (c) 守恒相对残差随网格加密（三问题：水量 / 能量）。
+
+    数据源：v1_convergence.csv、tf_convergence.csv、q4_endo_convergence.csv、
+    conservation.csv（问题1）、conservation23.csv（问题2·3）、q4_conservation.csv（问题4）。
+    """
+    head, conv = read_csv_rows("v1_convergence.csv")
+    rows = [c for c in conv if c[head[0]] != "order(fit)"]
+    Ns = np.array([float(c[head[0]]) for c in rows])
+    errs = np.array([[float(c[h]) for h in head[1:]] for c in rows])
+    order_row = [c for c in conv if c[head[0]] == "order(fit)"][0]
+    orders = [float(order_row[h]) for h in head[1:]]
+    _, tf3 = read_csv_rows("tf_convergence.csv")
+    _, tf4 = read_csv_rows("q4_endo_convergence.csv")
+    d3 = {r["case"]: float(r["t_f_h"]) for r in tf3}
+    d4 = {r["case"]: float(r["t_f_h"]) for r in tf4}
+    N3 = [40, 80, 160]
+    e3 = [abs(d3[f"N={n}"] - d3["richardson_extrap"]) for n in N3]
+    e4 = [abs(d4[f"N={n}"] - d4["richardson_extrap"]) for n in N3]
+    _, cons1 = read_csv_rows("conservation.csv")
+    _, cons23 = read_csv_rows("conservation23.csv")
+    _, cons4 = read_csv_rows("q4_conservation.csv")
+
+    fig, (axA, axB, axC) = plt.subplots(1, 3, figsize=(W_DOUBLE, 3.4),
+                                        gridspec_kw=dict(width_ratios=[1.0, 1.0, 1.06]))
+    fig.subplots_adjust(left=0.083, right=0.985, top=0.865, bottom=0.185, wspace=0.34)
+    mk = ["o", "s", "^"]
+    for k in range(errs.shape[1]):
+        col = TIME_CMAP(0.12 + 0.72 * k / max(errs.shape[1] - 1, 1))
+        axA.loglog(Ns, errs[:, k], color=col, marker=mk[k], ms=3.0, lw=1.1,
+                   label=f"$t$={[100, 600, 1800][k]} s（阶 {orders[k]:.2f}）")
+    axA.loglog(Ns, errs[0, 0] * (Ns / Ns[0]) ** -2.0, color=ROLE["guide"], ls="--", lw=1.0,
+               label="斜率 −2（二阶参考）")
+    axA.set_xlabel("网格数 $N$")
+    axA.set_ylabel("最大偏差 / ℃")
+    axA.set_xticks([20, 40, 80, 160, 320])
+    axA.set_xticklabels(["20", "40", "80", "160", "320"])
+    axA.xaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
+    style_axis(axA, grid="both")
+    axA.legend(loc="lower left", handlelength=1.6, labelspacing=0.24)
+    panel(axA, "(a)", dx=-0.185)
+    tile(axA, "收敛：温度场误差")
+
+    for ns, es, col, lab, m in ((N3, e3, ROLE["model"], "问题 3（固定 $R$）", "o"),
+                                (N3, e4, ROLE["ref"], "问题 4（内生 $R(t)$）", "s")):
+        axB.loglog(ns, es, color=col, marker=m, ms=3.4, lw=1.2, label=lab)
+    axB.loglog(N3, e3[-1] * (np.array(N3) / 160.0) ** -1.0, color=ROLE["guide"], ls="--",
+               lw=1.0, label="斜率 −1（一阶参考）")
+    axB.set_xlabel("网格数 $N$")
+    axB.set_ylabel("$|t_f(N)-t_f^{\\mathrm{Rich}}|$ / h")
+    axB.set_xticks(N3)
+    axB.set_xticklabels([str(n) for n in N3])
+    axB.xaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
+    style_axis(axB, grid="both")
+    axB.legend(loc="lower left", handlelength=1.6, labelspacing=0.24)
+    panel(axB, "(b)", dx=-0.185)
+    tile(axB, "收敛：$t_f$ 随网格")
+
+    series = [([float(r["N"]) for r in cons1], [float(r["max_rel_residual"]) for r in cons1],
+               "水量/能量（问题 1）", ROLE["data"], "o"),
+              ([float(r["N"]) for r in cons23],
+               [float(r["max_rel_residual_water"]) for r in cons23], "水量（问题 2·3）",
+               ROLE["model"], "s"),
+              ([float(r["N"]) for r in cons23],
+               [float(r["glob_rel_residual_enthalpy"]) for r in cons23], "能量（问题 2·3）",
+               ROLE["aux1"], "s"),
+              ([float(r["N"]) for r in cons4],
+               [float(r["max_rel_residual_water"]) for r in cons4], "水量（问题 4）",
+               ROLE["ref"], "^"),
+              ([float(r["N"]) for r in cons4],
+               [float(r["glob_rel_residual_enthalpy"]) for r in cons4], "能量（问题 4）",
+               ROLE["aux2"], "^")]
+    for xs, ys_, lab, col, m in series:
+        axC.loglog(xs, ys_, color=col, marker=m, ms=3.2, lw=1.1, label=lab)
+    axC.axhline(1e-10, color=ROLE["guide"], ls=":", lw=0.9)
+    axC.text(0.975, 0.86, "机器精度量级 $10^{-10}$", transform=axC.transAxes, ha="right",
+             fontsize=7.5, color="0.35")
+    axC.set_xticks([40, 80, 160])
+    axC.set_xticklabels(["40", "80", "160"])
+    axC.xaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
+    axC.set_xlabel("网格数 $N$")
+    axC.set_ylabel("相对残差（各网格最大值）")
+    style_axis(axC, grid="both")
+    axC.legend(loc="lower left", handlelength=1.4, labelspacing=0.22, fontsize=7.5)
+    panel(axC, "(c)", dx=-0.165)
+    tile(axC, "守恒：残差随网格加密")
+    for _ax in (axA, axB, axC):
+        log_minor_off(_ax)
+
+    print(f"  [F15] 收敛：问题1 阶 {orders}（N=20→320，5 点）；问题3 |Δt_f| "
+          f"{e3[0]:.4f}/{e3[1]:.4f}/{e3[2]:.4f} h、问题4 {e4[0]:.5f}/{e4[1]:.5f}/{e4[2]:.6f} h"
+          f"（对 Richardson 外推）；守恒：问题1 max {max(float(r['max_rel_residual']) for r in cons1):.2e}、"
+          f"问题2·3 水量 max {max(float(r['max_rel_residual_water']) for r in cons23):.2e} / 能量 "
+          f"{max(float(r['glob_rel_residual_enthalpy']) for r in cons23):.2e}、问题4 水量 max "
+          f"{max(float(r['max_rel_residual_water']) for r in cons4):.2e} / 能量 "
+          f"{max(float(r['glob_rel_residual_enthalpy']) for r in cons4):.2e}"
+          f"（conservation23.csv 的 enthalpy_window 列为逐时窗口口径，非残差，不入图）", flush=True)
+    save(fig, "fig15_收敛与守恒检验")
+
+
+# ====================== F16 中心表面演化与半径收缩 ======================
+def fig16():
+    """(a) 中心/表面含水率演化 + 0.15 阈值 + t_f 标注；(b) 半径收缩 + 附件 2 实测对照。
+
+    数据源 03-数据/q4_endo_fields.npz（t_s/Cc/Cs/R_t）、q4_endo_eval.csv（t_f）、
+    附件 2（01-题目/原始文件/附件2.xlsx，实测 R）。
+    """
+    d = np.load(DATA_DIR / "q4_endo_fields.npz")
+    h = d["t_s"] / 3600.0
+    Cc, Cs, R_t = d["Cc"], d["Cs"], d["R_t"]
+    _, ev = read_csv_rows("q4_endo_eval.csv")
+    kv = {r["item"]: float(r["value"]) for r in ev}
+    tf_h = kv["tf_first_crossing_h"]
+    t2, R2 = read_att2()
+    h2 = t2 / 3600.0
+
+    fig, (axA, axB) = plt.subplots(2, 1, figsize=(W_SINGLE, 3.30), sharex=True,
+                                   gridspec_kw=dict(height_ratios=[1.28, 1.0]))
+    fig.subplots_adjust(left=0.135, right=0.975, top=0.885, bottom=0.155, hspace=0.22)
+    axA.plot(h, Cc, color=ROLE["model"], lw=1.2, label="中心 $s$=0")
+    axA.plot(h, Cs, color=ROLE["data"], lw=1.2, ls="--", label="表面 $s$=1")
+    axA.axhline(TH, color=ROLE["guide"], ls=":", lw=1.1)
+    axA.axvline(tf_h, color=ROLE["ref"], ls="--", lw=1.0)
+    axA.text(tf_h + 0.7, 2.42, f"$t_f$={tf_h:.4f} h", fontsize=7.5, color=ROLE["ref"],
+             va="top", ha="left")
+    axA.text(0.6, TH + 0.10, f"阈值 {TH} kg/kg", fontsize=7.5, color="0.30", ha="left")
+    axA.set_ylabel("干基含水率 $C$ / (kg/kg)")
+    axA.set_ylim(0.0, 2.75)
+    axA.set_xlim(0, 72)
+    style_axis(axA, grid="y")
+    axA.legend(loc="upper right", handlelength=1.8, labelspacing=0.26)
+    panel(axA, "(a)", dx=-0.115)
+    tile(axA, "中心/表面含水率演化（内生主解）")
+
+    axB.plot(h2, R2, ls="none", marker="o", ms=2.6, markevery=3, mfc="white",
+             mec=ROLE["data"], mew=0.8, label="附件 2 实测（每 3 点标一次）")
+    axB.plot(h, R_t, color=ROLE["model2"], lw=1.3, label="内生闭合预测 $R(t)$")
+    axB.axvline(tf_h, color=ROLE["ref"], ls="--", lw=1.0)
+    axB.set_xlabel("时间 $t$ / h")
+    axB.set_ylabel("药材半径 $R$ / cm")
+    axB.set_ylim(1.14, 2.06)
+    style_axis(axB, grid="y")
+    axB.legend(loc="upper right", handlelength=1.8, labelspacing=0.26)
+    panel(axB, "(b)", dx=-0.115)
+    tile(axB, "半径收缩：预测 vs 实测")
+
+    i_tf = int(np.argmin(np.abs(h - tf_h)))
+    ov = (h2 >= h[0]) & (h2 <= h[-1])            # 只在预测覆盖的 0–50.54 h 窗口内比
+    rmse = float(np.sqrt(np.mean((np.interp(h2[ov], h, R_t) - R2[ov]) ** 2)))
+    print(f"  [F16] $t_f$={tf_h:.6f} h（q4_endo_eval.csv）；$t_f$ 时 中心 {Cc[i_tf]:.4f} / 表面 "
+          f"{Cs[i_tf]:.4f} kg/kg；$R$ {R_t[0]:.4f}→$t_f$ {R_t[i_tf]:.4f}→末 {R_t[-1]:.4f} cm"
+          f"（{h[-1]:.2f} h）；与附件 2 实测散点（{int(ov.sum())} 点重叠段）RMSE={rmse:.4f} cm；"
+          f"表面在 {float(h[np.argmax(Cs < TH)]):.2f} h 首次低于阈值", flush=True)
+    save(fig, "fig16_中心表面演化与半径收缩")
+
+
+# ====================== F17 几何模型与边界条件示意图 ======================
+def fig17():
+    """几何模型与边界条件示意图（无数据曲线，纯 matplotlib patches 矢量绘制）。
+
+    口径常数取自 02-代码/solver_q1.py：$R_0$=0.02 m、$L$=0.25 m、$h$=25 W/(m²·K)、
+    $h_m$=8e-7 m/s、$T_0$=301.15 K（28 ℃）、$U_0$=2.55 kg/kg（题目给定与声明假设）。
+    """
+    from solver_q1 import R0 as R0_M, H, HM, T0_K, C0
+    L_CM = 25.0                     # 题目给定：药材长 25 cm（一维径向模型只用 L/R 比，见论文表 2）
+
+    fig, (axA, axB) = plt.subplots(1, 2, figsize=(W_DOUBLE, 3.3),
+                                   gridspec_kw=dict(width_ratios=[1.0, 2.15]))
+    fig.subplots_adjust(left=0.035, right=0.975, top=0.905, bottom=0.075, wspace=0.10)
+
+    # ---- (a) 横截面 ----
+    axA.set_aspect("equal")
+    axA.add_patch(plt.Circle((0, 0), 2.0, fc="#eef3f8", ec=ROLE["model"], lw=1.3))
+    axA.plot([0], [0], marker="+", ms=7, mew=1.2, color=ROLE["data"])
+    axA.annotate("", xy=(2.0, 0), xytext=(0, 0),
+                 arrowprops=dict(arrowstyle="-|>", lw=1.0, color=ROLE["data"]))
+    axA.text(1.05, 0.12, "$R_0$=2 cm", fontsize=8)
+    for ang, lab in ((90, "$h$, $h_m$"), (0, "$h$, $h_m$"), (270, "$h$, $h_m$"), (180, "$h$, $h_m$")):
+        a = np.deg2rad(ang)
+        axA.annotate("", xy=(3.05 * np.cos(a), 3.05 * np.sin(a)),
+                     xytext=(2.05 * np.cos(a), 2.05 * np.sin(a)),
+                     arrowprops=dict(arrowstyle="-|>", lw=0.9, color=ROLE["ref"]))
+    axA.text(0, 3.62, "环境 $T_a(t)$、$C_{\\mathrm{env}}(t)$", fontsize=8, ha="center",
+             va="center", color=ROLE["ref"])
+    axA.text(0, -3.72, "对称轴 $r$=0（$\\partial_r$=0）", fontsize=7.5, ha="center",
+             va="center", color="0.30")
+    axA.set_xlim(-3.6, 3.6)
+    axA.set_ylim(-4.3, 4.3)
+    axA.axis("off")
+    panel(axA, "(a)", dx=0.0)
+    tile(axA, "横截面：一维径向")
+    axA.text(-3.55, 2.75, f"$h$={H:g} W/(m$^2$·K)\n$h_m$={HM:g} m/s", fontsize=7.5,
+             va="center", ha="left", color="0.20")
+
+    # ---- (b) 轴向纵剖面（柱体横放：水平向＝柱长 L，竖向＝直径 2R₀）----
+    axB.set_aspect("equal")
+    axB.add_patch(Rectangle((0, -2), L_CM, 4, fc="#eef3f8", ec=ROLE["model"], lw=1.3))
+    # 竖向尺寸线（柱体右侧）：直径 2R₀
+    axB.annotate("", xy=(L_CM + 0.9, -2), xytext=(L_CM + 0.9, 2),
+                 arrowprops=dict(arrowstyle="<|-|>", lw=0.8, color="0.35"))
+    axB.text(L_CM + 0.9, 2.45, "$2R_0$=4 cm", fontsize=8, ha="center", va="bottom")
+    # 水平尺寸线（柱体下方）：柱长 L，两端画延伸线
+    for xe in (0.0, L_CM):
+        axB.plot([xe, xe], [-2.0, -3.15], color="0.62", lw=0.6, ls=":", zorder=1)
+    axB.annotate("", xy=(0, -3.0), xytext=(L_CM, -3.0),
+                 arrowprops=dict(arrowstyle="<|-|>", lw=0.8, color="0.35"))
+    axB.text(0.5 * L_CM, -3.35, f"$L$={L_CM:.0f} cm", fontsize=8, ha="center", va="top")
+    for x in (3.0, 8.0, 13.0, 18.0, 22.0):   # 沿轴向的代表性对流箭头
+        for sgn in (1,):
+            axB.annotate("", xy=(x, sgn * 3.0), xytext=(x, sgn * 2.05),
+                         arrowprops=dict(arrowstyle="-|>", lw=0.8, color=ROLE["ref"]))
+    axB.text(12.5, 3.75, "环境 $T_a(t)$、$C_{\\mathrm{env}}(t)$（附件 1）", fontsize=8,
+             ha="center", color=ROLE["ref"])
+    axB.text(12.5, 0.78, "$\u03c1(C)$、$c_p(C)$、$k(C)$、$D(C,T)$（附录 2/3/4 分问选用）",
+             fontsize=7.5, ha="center", color=ROLE["model"])
+    axB.text(12.5, -0.32, "干基含水率 $U$，温度 $T$；$r=R$ 处 Robin 边界",
+             fontsize=7.5, ha="center", color="0.25")
+    axB.text(12.5, -1.45, "初始：$T_0$=28 ℃、$U_0$=2.55 kg/kg（均匀）", fontsize=7.5,
+             ha="center", color="0.25")
+    axB.set_xlim(-4.2, 31.5)
+    axB.set_ylim(-4.6, 4.6)
+    axB.axis("off")
+    panel(axB, "(b)", dx=0.0)
+    tile(axB, "轴向：长柱、表面对流")
+
+    print(f"  [F17] 示意图常数：$R_0$={R0_M*100:.1f} cm、$L$={L_CM:.0f} cm（题目给定）、"
+          f"$h$={H:g} W/(m²·K)、$h_m$={HM:g} m/s、$T_0$={T0_K-273.15:.1f} ℃、"
+          f"$U_0$={C0} kg/kg（solver_q1.py；无数据曲线）", flush=True)
+    save(fig, "fig17_几何模型与边界条件示意图")
+
+
 FIGS = {"fig1": fig1, "fig2": fig2, "fig3": fig3, "fig5": fig5, "fig6": fig6,
-        "fig7": fig7, "fig8": fig8, "fig9": fig9, "fig10": fig10}
+        "fig7": fig7, "fig8": fig8, "fig9": fig9, "fig10": fig10,
+        "fig11": fig11, "fig12": fig12, "fig13": fig13, "fig14": fig14,
+        "fig15": fig15, "fig16": fig16, "fig17": fig17}
 
 
 def main():
@@ -1510,7 +2034,8 @@ def main():
     a = ap.parse_args()
     plt.rcParams.update(RC)
     want = a.only or ["fig1", "fig2", "fig3", "fig4", "fig5", "fig6", "fig7", "fig8",
-                      "fig9", "fig10"]
+                      "fig9", "fig10", "fig11", "fig12", "fig13", "fig14", "fig15",
+                      "fig16", "fig17"]
     for k in want:
         print(f"[{k}] 作图 …", flush=True)
         if k == "fig4":
