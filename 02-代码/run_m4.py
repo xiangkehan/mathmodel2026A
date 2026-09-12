@@ -402,22 +402,28 @@ def main():
     # ---------- D3 误差预算 ----------
     print("=" * 60, "\n[D3] 误差预算", flush=True)
     errC, errC_h = interp_error_estimate()
+    r_lin_dev = abs(tf_lin - tf4_80)
     budget = [
-        ("空间网格(N=160,Richardson偏差)", 0.0164, "可收敛"),
-        ("时间步(rtol/10实测)", 0.0014, "可收敛"),
-        ("非线性迭代(Picard/Newton对照)", 0.000001, "可收敛"),
-        ("输出重建/1s插值(曲率上界)", errC_h, "可收敛"),
-        ("半径插值(线性vsPCHIP,问题4)", abs(tf_lin - tf4_80), "口径依赖"),
-        ("舍入(60s网格+四位小数实测)", 0.0534 + 0.0167, "固有"),
-        ("环境外推(三档最大偏移)", 1.6194, "情景假设"),
+        ("数值误差:空间网格(Q3,N=160 Richardson偏差)", 0.0164, "问题3"),
+        ("数值误差:空间网格(Q4,连续事件定位N80→160变化)", 0.0007, "问题4"),
+        ("数值误差:时间步(rtol/10实测)", 0.0014, "两问"),
+        ("数值误差:非线性迭代(Picard/Newton对照)", 0.000001, "两问"),
+        ("数值误差:输出重建/1s插值(曲率上界)", errC_h, "两问"),
+        ("环境情景:环境外推(三档最大偏移)", 1.6194, "两问"),
+        ("口径依赖:半径插值(线性vsPCHIP)", r_lin_dev, "问题4"),
+        ("口径依赖:舍入判定(60s网格+四位小数)", 0.0534 + 0.0167, "问题3(另一种数据使用方式)"),
+        ("模型结构差异:潜热情景(单列不合成)", 5.3889, "情景(见latent_scenario.csv)"),
     ]
-    total = sum(b[1] for b in budget)
+    total_q3 = 0.0164 + 0.0014 + 0.000001 + errC_h + 1.6194 + 0.0701
+    total_q4 = 0.0007 + 0.0014 + 0.000001 + errC_h + 1.6194 + r_lin_dev
     with open(DATA_DIR / "error_budget.csv", "w", encoding="utf-8") as f:
-        f.write("误差源,量级_h,类型\n")
+        f.write("误差源,量级_h,类别/适用\n")
         for name, v, typ in budget:
             f.write(f"{name},{v:.6g},{typ}\n")
-        f.write(f"确定性合成(三角不等式),{total:.6g},不含C_e口径\n")
-    print(f"[D3] 输出插值 {errC_h:.2e} h；合成区间 ±{total:.3f} h（不含 C_e 口径）", flush=True)
+        f.write(f"已检查因素累计偏移量级(问题3),{total_q3:.6g},不含C_e口径/潜热情景\n")
+        f.write(f"已检查因素累计偏移量级(问题4),{total_q4:.6g},不含C_e口径/潜热情景\n")
+    print(f"[D3] 输出插值 {errC_h:.2e} h；累计偏移量级 Q3≈{total_q3:.2f} h、"
+          f"Q4≈{total_q4:.2f} h（不含 C_e 口径与潜热情景）", flush=True)
 
     # ---------- D5 结果总账 ----------
     print("=" * 60, "\n[D5] 结果总账 + 论文表", flush=True)
@@ -458,13 +464,13 @@ def main():
     A(("t_f", "问题3外部锚点56.92/56.93/57.45偏差", "", "+0.26/+0.25/-0.27", "h"))
     for case, v in (("V1热场解析对拍最大偏差(N=320)", "5.90e-07"),
                     ("V1收敛阶", "2.000/1.993/1.990"),
-                    ("V2尾段衰减率γ(实测)", f"{gamma:.4e}/s"),
+                    ("V2尾段后验诊断:衰减率γ(反演)", f"{gamma:.4e}/s"),
                     ("V2尾段ln线性R2", f"{r2_fit:.6f}"),
                     ("V2尾段等效D反演(对应C)", f"{D_eff:.3e}(C≈{C_equiv:.3f})"),
-                    ("V3问题3严格下界", "15.7021"),
-                    ("V3问题4收缩下界(时间积分)", "19.016"),
+                    ("V3问题3常系数参考时标", "15.7021"),
+                    ("V3问题4瞬时首模近似参考(时间积分)", "19.016"),
                     ("V4水量逐窗残差max", "5.54e-11"),
-                    ("V4总焓全局吞吐残差", "1.05e-11"),
+                    ("V4冻结热容显热离散平衡全局残差", "1.05e-11"),
                     ("V5a移动域vs固定域Δt_f", "0.00"),
                     ("V5b退化首模商", "0.99996"),
                     ("V6场级空间阶", "1.90-2.45")):
@@ -473,7 +479,8 @@ def main():
         A(("敏感性", name, "", f"{tf_:.4f}", f"Δ{d_:+.4f} h"))
     for name, v, typ in budget:
         A(("误差预算", name, "", f"{v:.4g}", typ))
-    A(("误差预算", "确定性合成区间", "", f"±{total:.4f}", "h(不含C_e口径)"))
+    A(("误差预算", "已检查因素累计偏移量级(问题3)", "", f"{total_q3:.2f}", "h(不含C_e口径/潜热情景)"))
+    A(("误差预算", "已检查因素累计偏移量级(问题4)", "", f"{total_q4:.2f}", "h(不含C_e口径/潜热情景)"))
     # 潜热对照情景（审计 A01；02-代码/latent_scenario.py 产出，# key=value 头；缺失则跳过）
     _lat = {}
     _lp = DATA_DIR / "latent_scenario.csv"
@@ -491,6 +498,20 @@ def main():
         A(("情景(潜热A01)", "潜热情景Δt_f", "", f"{float(_lat['delta_t_f_h']):+.4f}", "h(不进主值)"))
         A(("情景(潜热A01)", "最大逐时|ΔT_s|/|ΔT_center|", "",
            f"{float(_lat['max_dTs_C']):.2f}/{float(_lat['max_dTcenter_C']):.2f}", "℃"))
+    # 内生几何自洽三段误差（A07；run_q4_endo.py 产出的 q4_endo_eval.csv；缺失则跳过）
+    _ev = _csv_kv(DATA_DIR / "q4_endo_eval.csv")
+    if "rmse_all_mm" in _ev:
+        A(("验证", "内生几何自洽R_pred vs 附件2 RMSE", "", f"{float(_ev['rmse_all_mm']):.4f}",
+           "mm（满72h真实轨迹；三段见q4_endo_eval.csv）"))
+        A(("验证", "内生自洽三段误差0-达标/达标-72h", "",
+           f"{float(_ev['rmse_0_to_crossing_mm']):.4f}/{float(_ev['rmse_crossing_to_72h_mm']):.4f}",
+           "mm（A07口径）"))
+        A(("验证", "内生R_from_state代数闭合残差max/mean", "",
+           f"{float(_ev['R_closure_resid_max_mm']):.4f}/{float(_ev['R_closure_resid_mean_mm']):.4f}",
+           "mm（只评估不进主解）"))
+    if "tf_endo_h" in _chk:
+        A(("验证", "耦合内生t_f vs 外生t_f偏差", "",
+           f"{float(_chk['tf_endo_h']) - q4s['tf4_h']:+.4f}", "h（模型间对照，非独立验证）"))
     for name, a2, b2, c2, d2_, e2, g2 in crit:
         A(("判据", f"Le[{name}]", "", f"{a2:.4g}–{b2:.4g}", "α/D"))
         A(("判据", f"Bi_m[{name}]", "", f"{c2:.4g}–{d2_:.4g}", "h_m·R/D"))

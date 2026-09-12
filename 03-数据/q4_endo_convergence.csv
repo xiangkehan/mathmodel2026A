@@ -6,7 +6,7 @@ richardson_extrap,50.53686692
 interp_t_star,50.53621691
 exogenous_att2_N160,50.82302500
 delta_endo_minus_exo_h,-0.28615640
-R_pred_vs_att2_RMSE_mm,0.073892
+R_pred_vs_att2_RMSE_mm,0.087927
 field_maxdiff_t36000s,4.326488e-03
 field_maxdiff_t108000s,2.277474e-03
 field_maxdiff_t180000s,2.000733e-03

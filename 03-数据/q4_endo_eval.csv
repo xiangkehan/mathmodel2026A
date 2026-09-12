@@ -1,0 +1,12 @@
+item,value
+tf_first_crossing_h,50.53686860
+rmse_all_mm,0.087927
+rmse_0_to_crossing_mm,0.064589
+rmse_crossing_to_72h_mm,0.127180
+R_pred_72h_cm,1.183624
+R_pred_60h_cm,1.186697
+R_att_end_cm,1.1980
+R_closure_resid_max_mm,0.003069
+R_closure_resid_mean_mm,0.000747
+Ts_recon_vs_cell_max_C,0.018421
+Ts_recon_vs_cell_mean_C,0.002005
