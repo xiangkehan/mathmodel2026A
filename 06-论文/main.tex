@@ -23,52 +23,44 @@
 \begin{document}
 \maketitle
 
-\begin{abstract}
+\begin{abstract}\vspace*{-18pt}
 \noindent\textbf{问题与挑战}：中药材（圆柱形，长 25 cm、半径 2 cm，初温 28 ${}^\circ$C、
-初始干基含水率 2.55 kg/kg）的烘干涉及预热平衡、恒温干燥、达标判定与收缩变形四个阶段，
-本题要求依次给出温度与水分浓度场、达标时间与收缩下的达标时间。挑战在于：
+初始干基含水率 2.55 kg/kg）的烘干要求依次给出温度与水分浓度场、达标时间与收缩下的
+达标时间。挑战在于：
 三套附录物性必须按问题分别使用且不得调和；扩散系数 $D$ 对局部含水率与温度强非线性
-（尾段变化 16.8 倍）；环境数据仅覆盖 4 h、半径数据在约 21 h 进入近平台段——任何一处口径
-处理不当都会使结果偏差数十小时。
+（尾段变化 16.8 倍）；环境数据仅覆盖 4 h、半径数据在约 21 h 进入近平台段。
 
-\medskip\noindent\textbf{方法}：本文把四问统一为\textbf{一套热湿耦合方程加四个配置开关}：
-从干固体守恒、水分守恒与能量守恒第一性原理出发，以干物质标签 $q\in[0,1]$ 为材料坐标
-建立质量坐标方程，收缩几何下方程同形、无伪对流项；用守恒型有限体积求解
-（表面半单元内阻与外对流阻串联、后向欧拉加局部外推、Picard--Newton 切换、自适应步长），
-并以题给参数构建判据族（$Le$、$Bi_m$、$Bi_h$）与常系数/瞬时首模参考时标组织简化与验证。
-一条命令复现全部交付文件，连续两次运行哈希一致。
+\smallskip\noindent\textbf{方法}：本文把四问统一为\textbf{一套热湿耦合方程加四个配置开关}：
+从干固体守恒、水分守恒与能量守恒第一性原理出发，以干物质标签 $q$ 为材料坐标
+建立质量坐标方程，收缩几何下方程同形、无伪对流项；用守恒型有限体积求解，
+并以题给参数构建判据族（$Le$、$Bi_m$、$Bi_h$）与参考时标组织简化与验证。
 
-\medskip\noindent\textbf{关键结果}：问题 1 的温度场与解析解逐点对拍最大偏差
+\smallskip\noindent\textbf{关键结果}：问题 1 的温度场与解析解逐点对拍最大偏差
 $5.9\times10^{-7}\,^{\circ}$C；问题 3 达标时间 $t_f=57.1799$ h（Richardson 外推
 57.1636 h，常系数参考时标 15.70 h 通过）；问题 4 达标时间 $t_f=50.5369$ h
-（瞬时首模近似参考 19.02 h 通过；几何由内生收缩模型预测，附件 2 实测半径作交叉验证，
+（瞬时首模参考 19.02 h 通过；几何由内生收缩模型预测，附件 2 实测半径交叉验证，
 偏差 $-0.56\%$）。
-机制归因：附录 4 与附录 3 的扩散系数比 $D_4/D_3=0.175\,\mathrm e^{0.15/U}$
-随含水率由 $1/5.39$（$U=2.55$）变化到 $1/2.10$（$U=0.15$）；附录物性组合效应
-使固定半径烘干时间放大 $2.26$ 倍，半径收缩（$R^2$ 降 64\%）加速 $60.9\%$，
+机制归因：附录 4 与附录 3 的扩散系数比随含水率由 $1/5.39$ 变化到 $1/2.10$；
+物性组合效应使固定半径烘干时间放大 $2.26$ 倍，半径收缩（$R^2$ 降 64\%）加速 $60.9\%$，
 净效应使问题 4 反而快 $11.6\%$；
 敏感性分析显示边界汇口径（$C_e$）是唯一能量级翻盘的单点（$+22.6$ h）。
 
-\medskip\noindent\textbf{验证与创新}：六层分层验证体系（解析谱解对拍、线性化退化、
-参考时标闸门、守恒恒等式、移动域退化、网格收敛）每层明确能排除与不能排除的错误类型，
-其中解析解与数值解是两种完全不同数学结构的互证；在所列模型假设与情景集合内，
-已检查因素的累计偏移量级约 1.71 h（数值误差、环境情景、模型结构差异三类分报）；
-内生收缩分析进一步表明附件 2 的三段收缩可由"理想收缩+玻璃化冻结"
-零拟合闭合结构性复现（平台半径偏差 $-2.4\%$），而完整的内生收缩模型
-（失水/毛细塌陷/结皮成孔三项带物理动机机制叠加的半经验闭合，
-5 个参数经最小二乘标定并经留出法插值稳健性检验）
-以 RMSE 0.047 mm 贴合附件 2 全部形态（滞后交叉、平台、三段）——
-该指标是\textbf{外生湿度轨迹驱动的单向标定贴合度}；
+\smallskip\noindent\textbf{验证与创新}：六层分层验证体系每层明确能排除与不能排除的错误类型，
+解析解与数值解是两种不同数学结构的互证；在所列模型假设与情景集合内，
+已检查因素的累计偏移量级约 1.71 h（三类分报）；
+附件 2 的三段收缩可由"理想收缩+玻璃化冻结"零拟合闭合结构性复现
+（平台半径偏差 $-2.4\%$）；完整的内生收缩模型（三项物理动机机制的
+半经验闭合，5 参数经最小二乘标定与留出法检验）以 RMSE 0.047 mm
+贴合附件 2 全部形态——\textbf{外生湿度轨迹驱动的单向标定贴合度}；
 耦合主解自身对附件 2 的全程 RMSE 为 \textbf{0.088 mm}
-（满 72 h 真实轨迹：0--达标 0.065 / 达标--72 h 0.127 mm），
-达标时间 50.5369 h 与附件 2 外生几何版 50.8230 h 偏差 $-0.56\%$
-（属模型间对照，不构成独立实验验证）。
+（满 72 h 真实轨迹：0--达标 0.065 / 达标--72 h 0.127 mm）；
+与外生几何版 50.8230 h 的差异属模型间对照，不构成独立实验验证。
 
-\medskip\noindent\textbf{关键词：} 热湿耦合；质量坐标；守恒有限体积；判据族；独立验证；中药材干燥
+\smallskip\noindent\textbf{关键词：} 热湿耦合；质量坐标；守恒有限体积；判据族；独立验证；中药材干燥
 \end{abstract}
 
 \newpage
-\tableofcontents
+{\small\tableofcontents}
 \newpage
 \section{问题重述与审题}
 
@@ -273,7 +265,7 @@ $t_f$（问题 3 设定、N=80 网格、57.2009 h）的实测差值列出。没�
 干燥末段表面 $U<0.15$ 的局部状态超出该扫描域，不在区间覆盖之内。}
 \label{tab:判据族}
 \small
-\begin{tabular}{llllll}
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.78cm}>{\raggedright\arraybackslash}p{1.40cm}>{\raggedright\arraybackslash}p{2.45cm}>{\raggedright\arraybackslash}p{2.45cm}>{\raggedright\arraybackslash}p{4.69cm}>{\raggedright\arraybackslash}p{1.60cm}}
 \toprule
 判据 & 定义 & 附录 3 区间 & 附录 4 区间 & 简化决策 & 反验偏差 \\
 \midrule
@@ -607,7 +599,7 @@ $g_p=\mathrm{clip}\big((C_{\mathrm{glass}}-C_s)/(C_{\mathrm{glass}}-C_{s,\min}),
 \caption{内生收缩模型参数表（拟合/非拟合分栏诚实标注）与物理合理性。}
 \label{tab:收缩参数}
 \small
-\begin{tabular}{llll}
+\begin{tabular}{>{\raggedright\arraybackslash}p{3.05cm}>{\raggedright\arraybackslash}p{1.65cm}>{\raggedright\arraybackslash}p{4.80cm}>{\raggedright\arraybackslash}p{4.62cm}}
 \toprule
 参数 & 数值 & 来源 & 物理合理性核对 \\
 \midrule
@@ -636,7 +628,7 @@ $R_{\mathrm{obs}}\to(\bar U,C_s)_{\mathrm{主解}}\to\text{标定}\to R_{\mathrm
 半径始终由模型生成、只用训练段计算目标函数），本文当前是
 "借助实测几何生成湿度场再标定"的近似。
 
-\textbf{体积口径的一致性更正}（此前版本的"负孔隙"写法作废）：
+\textbf{体积口径的更正}（"负孔隙"写法不成立）：
 一致的非负体积闭合应为 $\pi L R^2=m_d(1/\rho_s+\bar U/\rho_w)+V_g,\ V_g\ge0$
 （组分体积可加、近似不可压缩）。按体积审计：初始孔隙率的
 \textbf{峰值需求为 17.26\% @ 2 h}（曲线见数据文件）；而把题给 $\rho(2.55)=989.5$
@@ -801,20 +793,20 @@ $9.5\times10^{-11}$）。本节全部定量结果取自该实现下的重新标�
 \caption{力学求解器的退化/正确性检查（判定列全为通过）。}
 \label{tab:力学退化}
 \small
-\begin{tabular}{llll}
+\begin{tabular}{>{\raggedright\arraybackslash}p{4.05cm}>{\raggedright\arraybackslash}p{4.00cm}>{\raggedright\arraybackslash}p{5.30cm}>{\raggedright\arraybackslash}p{0.85cm}}
 \toprule
 检查 & 应出现的结果 & 实测 & 判定 \\
 \midrule
-不干燥 + 初始总应力平衡 & 尺寸无人为跳变 & $\max|\Delta r|=0.000$ & ✓ \\
-关闭黏弹分支 & 恢复纯弹性问题 & 运行正常（$R_{\mathrm{end}}=1.717$ cm） & ✓ \\
-$\tau\ll$ 过程尺度 & 黏弹分支充分松弛 & 与纯弹性差 $5.3\times10^{-15}$ cm & ✓ \\
-$\tau\gg$ 过程尺度 & 内变量近冻结 & $\max|Z|/\max|E|=4.3\times10^{-11}$ & ✓ \\
-指定仿射映射 $r=R\sqrt q$ & 传质系数恢复 $4qD/R^2$ & 相对误差 $4.9\times10^{-15}$ & ✓ \\
-固定外形持续失水 & $g$ 按体积恒等式增长 & 相对误差 $2.2\times10^{-16}$ & ✓ \\
-全程孔隙非负 & 任一时刻任一点 $g\ge0$ & $g_{\min}=+0.1446$（无任何负孔隙） & ✓ \\
-全局体积核验式 & $R^2/R_0^2=s_0+\frac{\rho_{d0}}{\rho_w}\bar U+\int g\,dq$ & 残差 $\le2.7\times10^{-16}$ & ✓ \\
+不干燥 + 初始总应力平衡 & 尺寸无人为跳变 & $\max|\Delta r|=0.000$ & $\checkmark$ \\
+关闭黏弹分支 & 恢复纯弹性问题 & 运行正常（$R_{\mathrm{end}}=1.717$ cm） & $\checkmark$ \\
+$\tau\ll$ 过程尺度 & 黏弹分支充分松弛 & 与纯弹性差 $5.3\times10^{-15}$ cm & $\checkmark$ \\
+$\tau\gg$ 过程尺度 & 内变量近冻结 & $\max|Z|/\max|E|=4.3\times10^{-11}$ & $\checkmark$ \\
+指定仿射映射 $r=R\sqrt q$ & 传质系数恢复 $4qD/R^2$ & 相对误差 $4.9\times10^{-15}$ & $\checkmark$ \\
+固定外形持续失水 & $g$ 按体积恒等式增长 & 相对误差 $2.2\times10^{-16}$ & $\checkmark$ \\
+全程孔隙非负 & 任一时刻任一点 $g\ge0$ & $g_{\min}=+0.1446$（无任何负孔隙） & $\checkmark$ \\
+全局体积核验式 & $R^2/R_0^2=s_0+\frac{\rho_{d0}}{\rho_w}\bar U+\int g\,dq$ & 残差 $\le2.7\times10^{-16}$ & $\checkmark$ \\
 热算子退化对拍（常物性、无失水、阶跃） & 与参考求解器同 BE 步一致，随加密下降 &
-N=16/80/160（dt=60 s）最大场差 $0.0084/0.0023/0.0013$ ℃ & ✓ \\
+N=16/80/160（dt=60 s）最大场差 $0.0084/0.0023/0.0013$ ℃ & $\checkmark$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -949,7 +941,7 @@ $C_e=0.1366$ 后 $t_f$ 增大 $22.6$ h（$39.6\%$）。按纪律，主结果一�
 \centering\caption{误差预算表（三类分报、两问分列；$C_e$ 口径与潜热情景属模型结构差异，
 单列不合成）。}\label{tab:预算}
 \small
-\begin{tabular}{llll}
+\begin{tabular}{>{\raggedright\arraybackslash}p{1.90cm}>{\raggedright\arraybackslash}p{8.60cm}>{\raggedright\arraybackslash}p{1.85cm}>{\raggedright\arraybackslash}p{1.85cm}}
 \toprule
 类别 & 误差源 & 问题 3 (h) & 问题 4 (h) \\
 \midrule
@@ -1046,7 +1038,7 @@ $U_t|_q=\partial_q\!\left(4qD/R(t)^2\,U_q\right)$——与固定域同形、无�
 在移动表面 $q=1$ 处，对表面薄层做水分衡算，几何运动项与通量跳条件中的对应项
 恒等相消，Robin 边界 $-D\partial_rU=h_m(U_s-C_{\mathrm{env}})$ 形式不变。温度方程同理。
 
-两点说明：\textbf{(i)} 旧稿"从 $U_t|_r=(1/r)\partial_r(rDU_r)$ 出发、迁移项相消"
+两点说明：\textbf{(i)} 由 $U_t|_r=(1/r)\partial_r(rDU_r)$ 出发、假设"迁移项相消"
 的写法不成立（该式右侧没有可相消项），以上双守恒推导才是正确路径；
 \textbf{(ii)} 固定半径退化测试（V5a）\textbf{检验不了}这个缺口——
 此时骨架速度 $v\equiv0$，移动域与固定域方程逐字相同，
@@ -1075,7 +1067,7 @@ $U_t|_q=\partial_q\!\left(4qD/R(t)^2\,U_q\right)$——与固定域同形、无�
 \caption{量纲门禁（逐条通过；$T$ 的开尔文换算与 $h_m$/$D$ 共轭关系单列）。}
 \label{tab:量纲}
 \small
-\begin{tabular}{lll}
+\begin{tabular}{>{\raggedright\arraybackslash}p{2.40cm}>{\raggedright\arraybackslash}p{3.60cm}>{\raggedright\arraybackslash}p{8.60cm}}
 \toprule
 符号 & 单位 & 核对要点 \\
 \midrule

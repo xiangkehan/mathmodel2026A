@@ -20,7 +20,8 @@
   fig4  q23_main_steps.npz（um）、**q4_endo_fields.npz（C → 逐帧 nanmax 得 maxU，内生几何主解）**、
         q4_split.csv、q4_bound.csv、v3_bound.csv、sensitivity.csv、结果总账.csv；
         附4固定R对照曲线由 solver_q4 现算（与 q4_split.csv 的 appendix4_fixedR 逐次核对）
-  fig5  sensitivity.csv、error_budget.csv
+  fig5  sensitivity.csv（敏感性因素）、q4_split.csv（问题4 效应拆分，基准＝内生几何主解）、
+        error_budget.csv
   fig6  endogenous_shrinkage.csv（附件2 时刻网格上的各闭合 R_pred、Ū_model、Ū_inf；
         其驱动场为**附件2 几何（外生 R）**的求解结果，见 03-数据/内生收缩分析.md）；
         缺列时回退 附件2.xlsx、q4_main_steps.npz
@@ -29,8 +30,9 @@
   fig8  q4_endo_fields.npz（内生几何 C、T、R_t → 3D 时空曲面）
   fig9  q4_endo_fields.npz（同上 → 6 个时刻的圆盘截面）
   fig10 mechRefit.csv（145 点 R_data/R_pred/残差）、mechRefit_fields.npz（重标定参数、
-        全程场量 ū/De/g）；口径见 03-数据/力学升级_重标定.md（修正后重标定的幂律
-        吸力力学模型，取代此前的线性检验本构情景族）
+        全程场量 ū/De/g、末端平衡表 terminal、t_f_h）；口径见
+        03-数据/力学升级_修复重标定.md（A04/A05 修复后重标定的幂律吸力力学模型，
+        取代此前的线性检验本构情景族；旧文 力学升级_重标定.md 的数值一律作废）
 
 口径常数（非结果数字，仅用于画线/判定，来源已注明）：
   TH = 0.15 kg/kg  —— 题目问题 3 原文“水分浓度应低于 0.15 kg/kg”
@@ -44,7 +46,6 @@ import argparse
 import csv
 import json
 import logging
-import re
 import sys
 import time
 import warnings
@@ -245,11 +246,14 @@ def note(ax, text, xy=(0.98, 0.97), ha="right", va="top", fs=7.5):
 
 
 def fit_left(fig, axes, pad_px=6.0):
-    """按 y 轴刻度文字 + ylabel 的实测宽度加大左边距，防止长中文类别名被裁切
-    （bbox 出图为精确 figsize，不裁切，故必须自己留够边距）。"""
+    """把左边距设成“y 轴刻度文字 + ylabel”实测所需的最小值（当前 left 够用时不动），
+    防止长中文类别名被裁切（bbox 出图为精确 figsize，不裁切，故必须自己留够边距）。
+    旧实现无条件在原 left 上再加一份标签宽度，fig5 的长类别名因此白占约 2 in 绘图区。"""
     fig.canvas.draw()
     ren = fig.canvas.get_renderer()
-    over = 0.0
+    w_px = fig.get_size_inches()[0] * fig.dpi
+    left_cur = fig.subplotpars.left * w_px
+    need = 0.0
     for ax in np.atleast_1d(axes).ravel():
         labs = [t for t in ax.get_yticklabels() if t.get_text().strip()]
         if not labs:
@@ -257,9 +261,9 @@ def fit_left(fig, axes, pad_px=6.0):
         left_px = min([t.get_window_extent(ren).x0 for t in labs]
                       + ([ax.yaxis.label.get_window_extent(ren).x0]
                          if ax.get_ylabel() else []))
-        over = max(over, ax.get_window_extent(ren).x0 - left_px + pad_px)
-    fig.subplots_adjust(left=fig.subplotpars.left + over / (fig.get_size_inches()[0]
-                                                            * fig.dpi))
+        need = max(need, ax.get_window_extent(ren).x0 - left_px + pad_px)
+    if need > left_cur:
+        fig.subplots_adjust(left=need / w_px)
     return fig.subplotpars.left
 
 
@@ -745,16 +749,16 @@ def fig4(no_cache=False):
     # 与结果总账.csv 交叉核对：图上 问题4 主解 t_f 必须等于总账的**内生几何主值**（找不到判失败）。
     # 总账该行写的是末帧时刻（步末口径 50.5369 h），本图用线性插值穿越时刻（50.5362 h），
     # 二者差异 ~0.0007 h，故容差取 0.01 h。
+    # （按"类别=t_f / 项目前缀"取"值"列：总账的项目名里含英文逗号与引号，不能按逗号裸切）
+    _, ledger_rows = read_csv_rows("结果总账.csv")
     ledger = {}
-    for line in (DATA_DIR / "结果总账.csv").read_text(encoding="utf-8").splitlines():
-        f = line.split(",")
-        if len(f) >= 2 and f[0] == "t_f":
-            for key, pat in (("q3", "问题3主值"), ("q4", "问题4主值")):
-                if f[1].startswith(pat):
-                    nums = [float(x) for x in f[1:]
-                            if re.fullmatch(r"-?\d+(\.\d+)?", x.strip())]
-                    if nums:
-                        ledger[key] = nums[0]
+    for r in ledger_rows:
+        if r["类别"] != "t_f":
+            continue
+        for key, pat in (("q3", "问题3主值"), ("q4", "问题4主值")):
+            if r["项目"].startswith(pat):
+                ledger[key] = float(r["值"])
+    assert set(ledger) >= {"q3", "q4"}, ledger
     assert abs(ledger["q3"] - tf3) < 1e-6, ledger
     assert abs(ledger["q4"] - tf4) < 0.01, \
         f"图上问题4主解 t_f={tf4:.4f} h 与总账内生主值 {ledger['q4']} h 不符"
@@ -823,6 +827,15 @@ def fig4(no_cache=False):
 
 
 # ====================== F5 敏感性 ======================
+# 误差预算的类别（与论文 表~tab:预算 的三类分报一致）：error_budget.csv 的“类别/适用”列
+# 记的是适用范围（问题3/问题4/两问），类别改由误差源前缀判定 → (前缀, 图例名, 颜色)
+BUDGET_CAT = [("数值误差", "数值误差", ROLE["model"]),
+              ("环境情景", "环境情景", ROLE["ref"]),
+              ("口径依赖", "口径依赖", OI["orange"]),
+              ("模型结构差异", "模型结构差异", ROLE["aux2"]),
+              ("已检查因素", "累计量级", OI["grey"])]
+
+
 def read_sensitivity():
     """sensitivity.csv 的“组别”内含英文逗号（如 C_e=0.04986(题目口径,主)），
     按“末两列为 t_f_h / delta_t_f_h”解析，组别名保留原文。"""
@@ -832,6 +845,20 @@ def read_sensitivity():
     for r in rows[1:]:
         out.append((",".join(r[:-2]), float(r[-2]), float(r[-1])))
     return out
+
+
+def read_q4_split():
+    """q4_split.csv：问题4 效应拆分的唯一数据源（基准＝内生几何主解 t_f）。
+
+    返回各 case 的 t_f/h；csv 自带的派生行（shrink_effect_endo_h、net_effect_endo_h）
+    用 t_f 现算并逐条核对，防止“csv 改了、图却没跟着改”。"""
+    _, rows = read_csv_rows("q4_split.csv")
+    d = {r["case"]: float(r["t_f_h"]) for r in rows}
+    base = d["appendix4_endogenous_R(t)"]
+    for k, v in (("shrink_effect_endo_h", d["appendix4_fixedR"] - base),
+                 ("net_effect_endo_h", d["problem3"] - base)):
+        assert abs(d[k] - v) < 1e-6, (k, d[k], v)
+    return d
 
 
 def fmt_mag(m):
@@ -844,15 +871,25 @@ def fmt_mag(m):
 
 def fig5():
     sens = read_sensitivity()
-    bars = [(n, d, tf) for n, tf, d in sens]
+    q4 = read_q4_split()
+    q4_base = q4["appendix4_endogenous_R(t)"]
+    # 问题4 效应拆分一律读 q4_split.csv（基准＝内生几何主解）；sensitivity.csv 里
+    # 三个旧外生拆分行（问题4效应拆分:*）不再进图
+    bars = ([(n, d, tf) for n, tf, d in sens if not n.startswith("问题4效应拆分")]
+            + [("问题4效应拆分:附录4固定R(对主解)", q4["appendix4_fixedR"] - q4_base,
+                q4["appendix4_fixedR"]),
+               ("问题4效应拆分:问题3(对主解)", q4["problem3"] - q4_base,
+                q4["problem3"]),
+               ("问题4效应拆分:附录4+外生R(t)(交叉验证)", q4["appendix4_R(t)"] - q4_base,
+                q4["appendix4_R(t)"])])
     base = [b for b in bars if abs(b[1]) < 1e-12]
     bars = sorted([b for b in bars if abs(b[1]) > 1e-12], key=lambda x: abs(x[1]))
     _, budget = read_csv_rows("error_budget.csv")
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(W_DOUBLE, 4.15),
-                                   gridspec_kw=dict(height_ratios=[1.18, 1.0]))
-    fig.subplots_adjust(left=0.30, right=0.985, top=0.905, bottom=0.205, hspace=0.60)
-    # 分两组：敏感性因素（≤3 条）+ 问题4 效应拆分归因（T6）
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(W_DOUBLE, 4.35),
+                                   gridspec_kw=dict(height_ratios=[1.0, 1.15]))
+    fig.subplots_adjust(left=0.30, right=0.985, top=0.93, bottom=0.17, hspace=0.45)
+    # 分两组：敏感性因素 + 问题4 效应拆分归因（基准＝q4_split.csv 的内生几何主解）
     grp1 = sorted([b for b in bars if not b[0].startswith("问题4效应拆分")],
                   key=lambda x: -x[1])
     grp2 = sorted([b for b in bars if b[0].startswith("问题4效应拆分")],
@@ -882,20 +919,22 @@ def fig5():
     ax1.axhline(div, color="0.65", lw=0.8, ls="--", zorder=1)
     ax1.text(103.0, ys[0] + 0.60, "敏感性因素", fontsize=7.5, color="0.25",
              ha="right", va="bottom")
-    ax1.text(103.0, div, "问题4 效应拆分（T6 归因）", fontsize=7.5,
+    ax1.text(103.0, div, "问题4 效应拆分（基准：内生主解）", fontsize=7.5,
              color="0.25", ha="right", va="center")
     ce = [b for b in grp1 if b[0].startswith("C_e")][0]
     others = sum(abs(b[1]) for b in grp1 if b is not ce)
     panel(ax1, "(a)")
     tile(ax1, "敏感性：各因素 $\\Delta t_f$")
 
+    # (b) 误差预算：error_budget.csv 的“类别/适用”列已是问题口径（问题3/问题4/两问），
+    # 因此类别按误差源前缀现取，与论文 表~\\ref{tab:预算} 的三类分报一一对应
     mags = np.array([float(r["量级_h"]) for r in budget])
-    typs = [r["类型"] for r in budget]
-    tcol = {"可收敛": ROLE["model"], "口径依赖": OI["orange"], "固有": ROLE["aux2"],
-            "情景假设": ROLE["ref"], "不含C_e口径": OI["grey"]}
+    cats = [(k, lab, c) for k, lab, c in BUDGET_CAT
+            if any(r["误差源"].startswith(k) for r in budget)]
+    ycol = lambda src: next((c for k, _, c in cats if src.startswith(k)), "0.5")
     ys2 = np.arange(len(mags))[::-1]
-    for y, m, tp in zip(ys2, mags, typs):
-        ax2.barh(y, m, color=tcol.get(tp, "0.5"), height=0.60, zorder=3)
+    for y, m, r in zip(ys2, mags, budget):
+        ax2.barh(y, m, color=ycol(r["误差源"]), height=0.60, zorder=3)
         ax2.text(m * 1.45, y, fmt_mag(m), va="center", fontsize=7.5)
     ax2.set_yticks(ys2)
     ax2.set_yticklabels([r["误差源"] for r in budget], fontsize=7.5)
@@ -903,9 +942,8 @@ def fig5():
     ax2.set_xlim(2e-7, 300)
     ax2.set_xlabel("误差量级 / h（对数轴）")
     style_axis(ax2, grid="x")
-    ax2.legend(handles=[Patch(color=c, label=t.replace("不含C_e口径", "不含C_e"))
-                        for t, c in tcol.items()],
-               loc="upper center", bbox_to_anchor=(0.30, -0.29), ncol=5,
+    ax2.legend(handles=[Patch(color=c, label=lab) for _, lab, c in cats],
+               loc="upper center", bbox_to_anchor=(0.50, -0.22), ncol=len(cats),
                handlelength=1.2, columnspacing=1.0, labelspacing=0.28)
     panel(ax2, "(b)", dx=-0.10)
     tile(ax2, "误差预算：各类误差量级")
@@ -913,7 +951,11 @@ def fig5():
     print(f"  [F5] 敏感性 {len(shown)} 条（基准 {len(base)} 条未画："
           f"{'；'.join(b[0] for b in base)}），红=偏晚、蓝=偏早；"
           f"主导 {ce[0]} {ce[1]:+.4f} h 是其余敏感性因素之和（{others:.2f} h）的 "
-          f"{abs(ce[1])/others:.0f} 倍；误差预算 {len(mags)} 条", flush=True)
+          f"{abs(ce[1])/others:.0f} 倍；误差预算 {len(mags)} 条 / "
+          + "/".join(f"{lab} {sum(1 for r in budget if r['误差源'].startswith(k))} 条"
+                     for k, lab, _ in cats) + "；"
+          f"问题4 拆分基准（内生主解）{q4_base:.4f} h → "
+          + "；".join(f"{n.split(':')[1]} {v:+.4f} h" for n, v, _ in grp2), flush=True)
     save(fig, "fig5_敏感性")
 
 
@@ -1328,9 +1370,10 @@ def fig10():
     """修正后重标定的幂律力学模型对附件2 的拟合（三联：拟合 / 残差 / 平台机制）。
 
     数据源：03-数据/mechRefit.csv（145 点 R_data、R_pred、残差 mm）+
-    mechRefit_fields.npz（重标定参数、全程场量 ū/De/g、末端平衡表）；口径见
-    03-数据/力学升级_重标定.md（模型：幂律保水 p_c=p*(1−S)/S^β + 松弛蠕变，
-    吸力单驱动；本图取代此前的线性检验本构情景族）。
+    mechRefit_fields.npz（重标定参数、全程场量 ū/De/g、末端平衡表 terminal）；
+    口径见 03-数据/力学升级_修复重标定.md（A04/A05 修复后重标定：幂律保水
+    p_c=p*(1−S)/S^β + 松弛蠕变，吸力单驱动；本图取代此前的线性检验本构情景族，
+    旧文 力学升级_重标定.md 的数值一律作废）。
     """
     from mech_shrinkage import MechParams
     from solver_q1 import C0, R0
@@ -1343,20 +1386,28 @@ def fig10():
     res = np.array([float(r["residual_mm"]) for r in rows])      # R_pred − R_data（mm）
     d = np.load(DATA_DIR / "mechRefit_fields.npz")
     p_star, beta = float(d["fit_params"][0]), float(d["fit_params"][1])
+    t_f = float(d["t_f_h"])
 
-    H_SEG = (3.5, 21.0)                    # 急缩 / 缓缩 / 平台 分界（力学升级_重标定.md §3）
+    H_SEG = (3.5, 21.0)                    # 急缩 / 缓缩 / 平台 分界（力学升级_修复重标定.md §4）
     rmse = float(np.sqrt(np.mean(res ** 2)))
     seg = [float(np.sqrt(np.mean(res[(h >= a) & (h < b)] ** 2)))
            for a, b in ((0.0, H_SEG[0]), (H_SEG[0], H_SEG[1]), (H_SEG[1], 1e9))]
     r_max = float(np.max(np.abs(res)))
+    k_max = int(np.argmax(np.abs(res)))
     plat_pred, plat_data = float(R_pred[-1]), float(R_data[-1])
     De_lo, De_hi = float(np.min(d["DeS"])), float(np.max(d["DeS"]))
     g_min = float(np.min(d["gS"]))
-    # 与 力学升级_重标定.md §3 逐项核对（总/分段 RMSE、平台、max 偏差、De、g_min）
-    assert abs(rmse - 0.502) < 2e-3 and np.allclose(seg, [1.135, 0.843, 0.161],
+    # 末端平衡表（terminal，纯力学量）：β 网格 → 末端 $J_{end}=(R/R_0)^2$；
+    # 拟合 β 处线性内插即“有限上限”对应的末端半径（力学升级_修复重标定.md §6）
+    term_beta, term_J = d["terminal"][:, 0], d["terminal"][:, 1]
+    J_end = float(np.interp(beta, term_beta, term_J))
+    R_end = R0 * 100.0 * np.sqrt(J_end)
+    # 与 力学升级_修复重标定.md §4/§6 逐项核对（总/分段 RMSE、平台、max 偏差、De、g_min、J_end）
+    assert abs(rmse - 0.522) < 2e-3 and np.allclose(seg, [1.193, 0.875, 0.163],
                                                     atol=2e-3), (rmse, seg)
-    assert abs(plat_pred - 1.1751) < 5e-4 and abs(plat_data - 1.198) < 5e-4
-    assert abs(r_max - 1.52) < 0.01 and De_hi < 1e-2 and g_min > 0.0, (r_max, De_hi, g_min)
+    assert abs(plat_pred - 1.1747) < 5e-4 and abs(plat_data - 1.198) < 5e-4
+    assert abs(r_max - 1.59) < 0.01 and De_hi < 2e-3 and g_min > 0.0, (r_max, De_hi, g_min)
+    assert abs(t_f - 51.1667) < 1e-3 and abs(J_end - 0.3343) < 1e-4, (t_f, J_end)
     # 失水理想基线：同一次重标定求解的 ū(t) 等容反推
     h_ideal = d["t"] / 3600.0
     R_ideal = R0 * 100.0 * np.sqrt((1.0 + d["Um"]) / (1.0 + C0))
@@ -1396,8 +1447,8 @@ def fig10():
     axB.axvline(H_SEG[1], color="0.72", ls=":", lw=0.8, zorder=1)
     axB.axhline(0.0, color="0.25", lw=0.8)
     axB.plot(h, res, color=ROLE["model"], lw=1.1, zorder=5)
-    axB.annotate("前 21 h：系统性欠缩\n（峰值 +1.24 mm）",
-                 xy=(1.5, 1.235), xytext=(0.30, 0.96), textcoords="axes fraction",
+    axB.annotate(f"前 21 h：系统性欠缩\n（峰值 {res[k_max]:+.2f} mm）",
+                 xy=(h[k_max], res[k_max]), xytext=(0.30, 0.96), textcoords="axes fraction",
                  fontsize=7.5, ha="left", va="top", color="0.15",
                  arrowprops=dict(arrowstyle="-|>", lw=0.7, color="0.35"),
                  bbox=dict(boxstyle="round,pad=0.26", fc="white", ec="0.80", lw=0.5, alpha=0.95))
@@ -1418,7 +1469,7 @@ def fig10():
     P = MechParams(rho_d0=1.0, rho_s=1468.0, p_star=p_star, ret_model="power",
                    q_pow=beta)
     pbar = np.asarray(P.pbar_c(S), float) / p_star        # 归一化平均吸力
-    cap = 1.0 / ((1.0 - beta) * (2.0 - beta))            # 解析上限（有限）
+    cap = 1.0 / ((1.0 - beta) * (2.0 - beta))    # 解析上限（有限）；β 取自 npz fit_params
     axC.plot(S, pbar, color=ROLE["model"], lw=1.4)
     axC.axhline(cap, color=ROLE["guide"], ls="--", lw=1.0)
     axC.text(0.03, cap + 0.012, f"有限上限 {cap:.3f} $p^*$", ha="left", va="bottom",
@@ -1439,10 +1490,12 @@ def fig10():
 
     print(f"  [F10] 重标定幂律拟合：RMSE={rmse:.4f} mm（急缩 {seg[0]:.3f} / 缓缩 "
           f"{seg[1]:.3f} / 平台 {seg[2]:.3f}）；平台 pred {plat_pred:.4f} vs data "
-          f"{plat_data:.3f} cm；max|残差|={r_max:.3f} mm；β={beta:.4f}、p*={p_star:.4g}；"
+          f"{plat_data:.3f} cm；max|残差|={r_max:.3f} mm @ {h[k_max]:.1f} h；"
+          f"β={beta:.4f}、p*={p_star:.4g}；"
           f"De={De_lo:.2e}–{De_hi:.2e}（≪1，非结皮冻结）；g_min={g_min:.4f}＞0；"
-          f"吸力上限 $1/[(1-β)(2-β)]p^*$={cap:.4f} $p^*$；t_f=51.1667 h（报告 §3）",
-          flush=True)
+          f"吸力上限 $1/[(1-β)(2-β)]p^*$={cap:.4f} $p^*$；末端平衡表（npz terminal）"
+          f"内插 β={beta:.4f} → $J_{{end}}$={J_end:.4f}（$R_{{end}}\\approx{R_end:.3f}$ cm）；"
+          f"t_f={t_f:.4f} h（npz t_f_h）", flush=True)
     save(fig, "fig10_力学升级")
 
 
