@@ -516,15 +516,19 @@ def fig1():
     tile(axL, "附件1：环境温湿与延拓")
 
     # ---- (b) 附件2 半径 ----
+    # 时间口径与论文统一：附件2 约 21 h 起进入 1.198 cm 近平台段（H_SEG 的 B/C 分界），
+    # 35 h 只是 R 在三位小数下“首达 1.200 cm”的时刻，不再用作“冻结点”。
+    t_plat = 21.0
     axR.plot(h2, R, color=ROLE["data"], lw=1.5, label="附件2 实测 $R(t)$")
     axR.plot([h2[-1], x_end], [R[-1]] * 2, color=ROLE["data"], ls="--", lw=1.1)
-    axR.axvspan(t_frz, h2[-1], color="0.93", lw=0, zorder=0)
+    axR.axvspan(t_plat, h2[-1], color="0.93", lw=0, zorder=0)
     axR.axvspan(h2[-1], x_end, color="0.96", lw=0, zorder=0)
-    axR.axvline(t_frz, color=ROLE["guide"], ls=":", lw=0.9)
+    axR.axvline(t_plat, color=ROLE["guide"], ls=":", lw=0.9)
     axR.axvline(h2[-1], color=ROLE["guide"], ls=":", lw=0.7)
     axR.axhline(R[-1], color=ROLE["guide"], ls=":", lw=0.9)
-    axR.annotate(f"$t$={t_frz:.0f} h：$R$ 首达 {R[i_frz]:.3f} cm\n此后基本冻结",
-                 xy=(t_frz, R[i_frz]), xytext=(0.30, 0.72), textcoords="axes fraction",
+    axR.annotate(f"≈{t_plat:.0f} h 起进入近平台段\n（$t$={t_frz:.0f} h 首达 {R[i_frz]:.3f} cm）",
+                 xy=(t_plat, R[int(np.argmin(np.abs(h2 - t_plat)))]),
+                 xytext=(0.30, 0.72), textcoords="axes fraction",
                  fontsize=7.5, ha="left", va="top",
                  arrowprops=dict(arrowstyle="-|>", lw=0.7, color="0.35"),
                  bbox=dict(boxstyle="round,pad=0.26", fc="white", ec="0.80", lw=0.5, alpha=0.95))
@@ -540,11 +544,12 @@ def fig1():
     axR.set_xlabel("时间 $t$ / h")
     axR.set_ylabel("药材半径 $R$ / cm")
     panel(axR, "(b)")
-    tile(axR, "附件2：半径收缩与冻结")
+    tile(axR, "附件2：半径收缩与近平台")
 
     print(f"  [F1] 附件1 {len(t1)} 点 0–{t_cut:.0f} h；附件2 {len(t2)} 点 0–{h2[-1]:.0f} h，"
-          f"R {R[0]:.3f}→{R[-1]:.3f} cm，冻结点 {t_frz:.0f} h"
-          f"（{t_frz:.0f}–{h2[-1]:.0f} h 仅降 {R[i_frz]-R[-1]:.3f} cm）", flush=True)
+          f"R {R[0]:.3f}→{R[-1]:.3f} cm，≈{t_plat:.0f} h 起近平台"
+          f"（{t_frz:.0f} h 首达 {R[i_frz]:.3f} cm；其后至 {h2[-1]:.0f} h 仅降 "
+          f"{R[i_frz]-R[-1]:.3f} cm）", flush=True)
     save(fig, "fig1_输入数据")
 
 
@@ -937,9 +942,16 @@ def fig6():
         U_mod = np.interp(t_s, d4["t"], d4["um"])
     R_ideal, R_crust, R_pore = (pick("R1_ideal_mean_cm"), pick("R3b_crust_mean_cm"),
                                 pick("R5_pore_cm"))
+    # 表面触发结皮（+毛细塌陷，论文记为“表面触发，平台约 1.345 cm”）：该列 t=0 值为 1.900
+    # （分析脚本的常数塌陷起值），与初始条件 R(0)=2.000 cm 不符，按初始条件修正首点。
+    R_surf = pick("R4b_crust_collapse_cm")
+    if R_surf is not None:
+        R_surf = R_surf.copy()
+        R_surf[0] = R_att2[0]
     miss = [n for n, v in (("R_att2_cm", R_att2), ("U_inferred_att2", U_inf),
                            ("U_mean_model", U_mod), ("R1_ideal_mean_cm", R_ideal),
-                           ("R3b_crust_mean_cm", R_crust), ("R5_pore_cm", R_pore))
+                           ("R3b_crust_mean_cm", R_crust), ("R5_pore_cm", R_pore),
+                           ("R4b_crust_collapse_cm", R_surf))
             if v is None]
     assert not miss, f"endogenous_shrinkage.csv 缺列（且无回退）: {miss}"
 
@@ -982,27 +994,38 @@ def fig6():
              va="center", fontsize=7.5, color="0.40")
     axL.text(0.5 * (H_SEG[0] + H_SEG[1]), 2.115, "B 缓缩", ha="center", va="center",
              fontsize=7.5, color="0.30")
-    axL.text(26.0, 2.115, "C 冻结", ha="center", va="center", fontsize=7.5, color="0.30")
+    axL.text(26.0, 2.115, "C 近平台段", ha="center", va="center", fontsize=7.5,
+             color="0.30")
     axL.plot(h, R_att2, color=ROLE["data"], lw=1.6, zorder=5,
-             label="附件2 实测 $R(t)$")
+             label="附件2 实测")
     axL.plot(h, R_ideal, color=ROLE["ref"], ls="--", lw=1.2,
              label="闭合1 全局理想")
+    axL.plot(h, R_surf, color=ROLE["analytic"], lw=1.2,
+             label="闭合4b 表面触发结皮")
     axL.plot(h, R_crust, color=ROLE["model"], lw=1.5,
-             label="闭合3' 理想+结皮")
+             label="闭合3' 均值触发结皮")
     axL.plot(h, R_pore, color=ROLE["aux2"], ls="-.", lw=1.2,
              label="闭合5 成孔演化")
     axL.axhline(R_plat, color=ROLE["guide"], ls=":", lw=1.0)
+    # 三条闭合的平台值与相对附件2 平台（1.198 cm）的偏差，直标在各自平台一端
+    for val, col, y0 in ((R_surf[-1], ROLE["analytic"], 0.010),
+                         (R_pore[-1], ROLE["aux2"], 0.008),
+                         (R_crust[-1], ROLE["model"], -0.032)):
+        dev = (val - R_plat) / R_plat * 100.0
+        axL.text(h[-1] - 1.0, val + y0, f"{val:.3f}（{dev:+.0f}%）" if abs(dev) >= 10
+                 else f"{val:.3f}（{dev:+.1f}%）",
+                 ha="right", va="bottom" if y0 > 0 else "top", fontsize=7.5, color=col)
     axL.text(h[-1] - 1.0, R_plat + 0.014, f"平台 {R_plat:.3f} cm", ha="right", va="bottom",
              fontsize=7.5, color="0.30")
     axL.annotate(f"早期塌陷\n峰值超额 {exc[k_exc]:.3f} cm",
                  xy=(h[k_exc], 0.5 * (R_att2[k_exc] + R_ideal[k_exc])),
-                 xytext=(0.20, 0.46), textcoords="axes fraction",
+                 xytext=(0.16, 0.56), textcoords="axes fraction",
                  fontsize=7.5, ha="left", va="top",
                  arrowprops=dict(arrowstyle="-|>", lw=0.7, color="0.35"),
                  bbox=dict(boxstyle="round,pad=0.26", fc="white", ec="0.80", lw=0.5, alpha=0.95))
-    axL.annotate(f"后期结皮/成孔\n平台 {R_crust[-1]:.3f} cm",
-                 xy=(46.0, R_plat + 0.002), xytext=(0.30, 0.30), textcoords="axes fraction",
-                 fontsize=7.5, ha="left", va="top",
+    axL.annotate("后期成孔 → 平台",
+                 xy=(30.0, R_pore[-1] + 0.002), xytext=(0.06, 0.22),
+                 textcoords="axes fraction", fontsize=7.5, ha="left", va="top",
                  arrowprops=dict(arrowstyle="-|>", lw=0.7, color="0.35"),
                  bbox=dict(boxstyle="round,pad=0.26", fc="white", ec="0.80", lw=0.5, alpha=0.95))
     axL.set_xlim(0, h[-1] + 2.0)
@@ -1010,9 +1033,9 @@ def fig6():
     axL.set_xlabel("烘干时间 $t$ / h")
     axL.set_ylabel("药材半径 $R$ / cm")
     style_axis(axL, grid="y")
-    axL.legend(loc="upper right", handlelength=1.4, labelspacing=0.26)
+    axL.legend(loc="upper right", handlelength=1.4, labelspacing=0.22)
     panel(axL, "(a)")
-    tile(axL, "半径对比：三条零拟合闭合")
+    tile(axL, "半径对比：四条零拟合闭合")
 
     # ---- 右：交叉诊断（附件2 等效含水率 vs 模型平均含水率）----
     axR.axvspan(0.0, t_cross, color=ROLE["ref"], alpha=0.05, lw=0)
@@ -1042,10 +1065,13 @@ def fig6():
     panel(axR, "(b)")
     tile(axR, "交叉诊断：等效 vs 模型含水率")
 
-    print(f"  [F6] 平台 {R_plat:.4f} cm；结皮闭合 {R_crust[-1]:.4f} cm（{dev_crust:+.2f}%）、"
-          f"冻结 {h_frz_crust:.1f} h（{dfrz_crust:+.1f}%，口径分界 {H_SEG[1]:g} h）；"
-          f"理想闭合 {R_ideal[-1]:.4f} cm"
-          f"（{dev_ideal:+.1f}%）、成孔闭合 {R_pore[-1]:.4f} cm（骨架 {RHO_SK:.0f}）；"
+    print(f"  [F6] 平台 {R_plat:.4f} cm；结皮闭合（均值触发）{R_crust[-1]:.4f} cm"
+          f"（{dev_crust:+.2f}%）、冻结 {h_frz_crust:.1f} h（{dfrz_crust:+.1f}%，"
+          f"口径分界 {H_SEG[1]:g} h）；表面触发结皮 {R_surf[-1]:.4f} cm"
+          f"（{(R_surf[-1]-R_plat)/R_plat*100:+.1f}%，首点按初始条件修正为 "
+          f"{R_surf[0]:.4f} cm）；理想闭合 {R_ideal[-1]:.4f} cm"
+          f"（{dev_ideal:+.1f}%）、成孔闭合 {R_pore[-1]:.4f} cm（骨架 {RHO_SK:.0f}，"
+          f"{(R_pore[-1]-R_plat)/R_plat*100:+.1f}%）；"
           f"超额峰值 {exc[k_exc]:.4f} cm @ {h[k_exc]:.1f} h（应变 "
           f"{exc[k_exc]/R_att2[0]*100:.1f}%）；C_glass={C_GLASS}；"
           f"交叉 {t_cross:.2f} h；缺口 {gap35:.4f}→{gap72:.4f} kg/kg", flush=True)
@@ -1098,10 +1124,11 @@ def fig7():
              fontsize=7.5, color="0.30")
     axA.text(0.5 * (H_SEG[0] + H_SEG[1]), 2.125, "B 缓缩", ha="center", va="center",
              fontsize=7.5, color="0.30")
-    axA.text(26.0, 2.125, "C 冻结", ha="center", va="center", fontsize=7.5, color="0.30")
+    axA.text(26.0, 2.125, "C 近平台段", ha="center", va="center", fontsize=7.5,
+             color="0.30")
     axA.plot(h, R_data, color=ROLE["data"], lw=1.6, zorder=5, label="附件2 实测 $R(t)$")
     axA.plot(h, R_pred, color=ROLE["model"], ls="--", lw=1.3,
-             label=f"内生模型 $R_{{pred}}(t)$（RMSE={rmse:.3f} mm）")
+             label=f"物理启发半经验闭合 $R_{{pred}}(t)$（RMSE={rmse:.3f} mm）")
     axA.plot(h, R_ideal, color=ROLE["ref"], ls=":", lw=1.2,
              label="失水理想基线 $R_{ideal}(t)$")
     axA.axhline(R_data[-1], color=ROLE["guide"], ls=":", lw=1.0)
