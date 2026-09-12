@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import csv
 import json
 import sys
 import time
@@ -267,6 +268,65 @@ def paper_tables():
     return rows, tf_h, tf4_h
 
 
+def _csv_kv(path):
+    """读 (key,value) 两列 CSV → dict（文件不存在返回 {}）。"""
+    p = Path(path)
+    if not p.exists():
+        return {}
+    with open(p, encoding="utf-8", newline="") as f:
+        rows = list(csv.reader(f))
+    return {r[0]: r[1] for r in rows[1:] if len(r) >= 2}
+
+
+def table6_from_result4(pt_rows):
+    """把论文表 6（问题 4）的数据格替换为**内生交付工作簿** result4.xlsx 的对应格。
+
+    result4.xlsx 结构（交付口径.md §4+§5.1）：Sheet1，A1 表头，其后 20 列 r=0.0…1.9 cm，
+    末列「药材表面」；常规行为 60 s 行程（6/12/…/48 h 均为其子集），末行为 t_f 数据行。
+    位置超出当前表面时单元格为空 → 该格留空（tables.tex 渲染为“—”），与交付口径一致。
+    内生工作簿不存在时原样返回（保持旧行为）。
+    """
+    xlsx = A_DIR / "04-结果" / "result4.xlsx"
+    if not xlsx.exists():
+        return pt_rows
+    import openpyxl
+    wb = openpyxl.load_workbook(xlsx, read_only=True, data_only=True)
+    ws = wb[wb.sheetnames[0]]
+    it = ws.iter_rows(values_only=True)
+    head = list(next(it))
+    body = [r for r in it if isinstance(r[0], (int, float))]
+    wb.close()
+    col = {}
+    for j in range(1, len(head)):
+        col[str(head[j]).replace("cm", "")] = j
+    t_last = float(body[-1][0])
+    by_t = {float(r[0]): r for r in body}
+    c6 = ("0", "0.5", "1", "1.5")
+    out = []
+    for r in pt_rows:
+        if r[0] != "表6":
+            out.append(r)
+            continue
+        tnode, cnode = r[1], r[2]
+        if tnode == "烘干结束时间":
+            src = body[-1]
+        else:
+            th = float(tnode.split("=")[1].rstrip("h"))
+            src = by_t.get(th * 3600.0)
+        if src is None:
+            out.append(r)
+            continue
+        if cnode == "药材表面":
+            v = src[-1]
+        else:
+            j = col.get(cnode.replace("r=", "").replace("cm", ""))
+            v = None if j is None else src[j]
+        out.append(("表6", tnode, cnode, "" if v is None else f"{float(v):.4f}", "kg/kg"))
+    print(f"[D5] 论文表 6 取自内生 result4.xlsx（末行 t={t_last:.3f} s，"
+          f"{len(c6) + 1} 列表头匹配）", flush=True)
+    return out
+
+
 def main():
     t_start = time.perf_counter()
     env_t, TaK, Ce = read_env()
@@ -362,20 +422,39 @@ def main():
     # ---------- D5 结果总账 ----------
     print("=" * 60, "\n[D5] 结果总账 + 论文表", flush=True)
     pt_rows, tf_h, tf4_h_ = paper_tables()
-    with open(DATA_DIR / "paper_tables.csv", "w", encoding="utf-8") as f:
-        f.write("表,行,列,值,单位\n")
+    pt_rows = table6_from_result4(pt_rows)      # 论文表 6 取内生 result4.xlsx（见其 docstring）
+    with open(DATA_DIR / "paper_tables.csv", "w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["表", "行", "列", "值", "单位"])
         for r in pt_rows:
-            f.write(",".join(r) + "\n")
+            w.writerow(list(r))
     q23s = json.load(open(DATA_DIR / "q23_summary.json", encoding="utf-8"))
     q4s = json.load(open(DATA_DIR / "q4_summary.json", encoding="utf-8"))
+    # 问题 4 主解 = **内生几何版**：t_f / Richardson 优先取 run_q4_endo.py 的产出
+    # （q4_endo_check.csv / q4_endo_convergence.csv）；无则退回外生 q4_summary.json
+    tf4_main, tf4_rich = q4s["tf4_h"], q4s["tf2_rich_h"]
+    tf4_tag, tf4_note = "", "h"
+    _chk = _csv_kv(DATA_DIR / "q4_endo_check.csv")
+    if "tf_endo_h" in _chk:
+        tf4_main = float(_chk["tf_endo_h"])
+        tf4_tag = "(未舍入右端点,内生几何)"
+        tf4_note = f"h（附件2外生版 {q4s['tf4_h']:.6f} 作交叉验证）"
+        _conv = _csv_kv(DATA_DIR / "q4_endo_convergence.csv")
+        if "richardson_extrap" in _conv:
+            tf4_rich = float(_conv["richardson_extrap"])
+            tf4_ridx = "问题4 Richardson外推(内生几何)"
+        else:
+            tf4_ridx = "问题4 Richardson外推"
+    else:
+        tf4_ridx = "问题4 Richardson外推"
     led = []
     A = led.append
     A(("t_f", "问题3主值(未舍入右端点)", "", f"{q23s['tf_h']:.6f}", "h"))
     A(("t_f", "问题3穿越区间", "", f"[{q23s['tf_bracket'][0]:.2f},{q23s['tf_bracket'][2]:.2f}]", "s"))
     A(("t_f", "问题3 Richardson外推", "", f"{q23s['tf_rich_h']:.6f}", "h"))
     A(("t_f", "问题3舍入判定(60s四位小数)", "", f"{q23s['tf_rounded_h']:.4f}", "h"))
-    A(("t_f", "问题4主值(未舍入右端点)", "", f"{q4s['tf4_h']:.6f}", "h"))
-    A(("t_f", "问题4 Richardson外推", "", f"{q4s['tf2_rich_h']:.6f}", "h"))
+    A(("t_f", f"问题4主值{tf4_tag}", "", f"{tf4_main:.6f}", tf4_note))
+    A(("t_f", tf4_ridx, "", f"{tf4_rich:.6f}", "h"))
     A(("t_f", "问题3外部锚点56.92/56.93/57.45偏差", "", "+0.26/+0.25/-0.27", "h"))
     for case, v in (("V1热场解析对拍最大偏差(N=320)", "5.90e-07"),
                     ("V1收敛阶", "2.000/1.993/1.990"),
@@ -404,10 +483,11 @@ def main():
         A(("判据反验", case, "", f"{v:.4f}", f"Δ{abs(v-tf3_80):+.4f} h"))
     for r in pt_rows:
         A(("论文表", f"{r[0]}[{r[1]}]", r[2], r[3], r[4]))
-    with open(DATA_DIR / "结果总账.csv", "w", encoding="utf-8") as f:
-        f.write("类别,项目,子项,值,单位/备注\n")
+    with open(DATA_DIR / "结果总账.csv", "w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)                       # csv 引号封装：含逗号的区间单元格不再被拆列
+        w.writerow(["类别", "项目", "子项", "值", "单位/备注"])
         for r in led:
-            f.write(",".join(str(x) for x in r) + "\n")
+            w.writerow([str(x) for x in r])
     print(f"[D5] 结果总账 {len(led)} 行；论文表 {len(pt_rows)} 格", flush=True)
     print(f"[完成] 总耗时 {time.perf_counter() - t_start:.1f} s", flush=True)
 

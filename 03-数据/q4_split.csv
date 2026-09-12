@@ -1,8 +1,13 @@
-case,t_f_h
-appendix4_fixedR,129.10470888
-appendix4_R(t),50.82302497
-problem3,57.17992500
-shrink_effect_h,78.28168391
-shrink_pct_of_fixedR,60.6343
-formula_plus_shrink_h,6.35690003
-formula_plus_shrink_pct_of_q3,11.1174
+case,t_f_h,note
+appendix4_fixedR,129.10470888,
+appendix4_R(t),50.82302497,附件2外生几何（交叉验证）
+problem3,57.17992500,
+shrink_effect_h,78.28168391,
+shrink_pct_of_fixedR,60.6343,
+formula_plus_shrink_h,6.35690003,
+formula_plus_shrink_pct_of_q3,11.1174,
+appendix4_endogenous_R(t),50.53686860,内生几何主解（收缩由模型预测）
+shrink_effect_endo_h,78.56784028,= appendix4_fixedR − 内生主解
+shrink_pct_of_fixedR_endo,60.8559,收缩效应占固定 R 对照
+net_effect_endo_h,6.64305640,= problem3 − 内生主解
+net_pct_of_q3_endo,11.6178,净效应占问题 3

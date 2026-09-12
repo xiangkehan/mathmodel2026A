@@ -6,10 +6,15 @@
   一步对两半步外推 + 守恒双恒等式窗口对账（与 solver_q4.solve_coupled4 同结构）。
 产物：
   ../04-结果/result4.xlsx（内生版，口径同交付口径.md §4+§5.1）
-  q4_endo_convergence.csv / q4_endo_check.csv / 结果总账.csv（就地更新问题 4 行）
+  q4_endo_convergence.csv / q4_endo_check.csv
+  q4_split.csv（内生主口径 T6 效应拆分；外生行保留并标注“附件2外生几何（交叉验证）”）
+  结果总账.csv（就地更新问题 4 行；以 (类别,项目,子项) 为键覆盖/去重，幂等）
+
+幂等性：本脚本对总账与 q4_split 的写入均按“键覆盖 + 去重”，重复运行不产生重复行。
 """
 from __future__ import annotations
 
+import csv
 import math
 import sys
 import time
@@ -32,6 +37,86 @@ from run_q4 import (read_radius, write_xlsx_stream, check_structure4,
 C_GLASS = 0.21
 P_C = dict(eps_c=0.1108, a=1.6680, b=1.2195, eps_p=0.0709, k_p=3.7872)
 CSMIN = 0.048766          # 末期 C_s（全局归一化常数，物理量；自主解步记录读得）
+
+
+# ====================== CSV 读写（幂等：键覆盖 + 去重） ======================
+def read_csv_rows(path):
+    """读 CSV → (表头, [行列表])。"""
+    with open(path, encoding="utf-8", newline="") as f:
+        rows = list(csv.reader(f))
+    return rows[0], [r for r in rows[1:] if r]
+
+
+def write_csv(path, header, rows):
+    """写 CSV（csv 模块引号封装：含逗号的单元格不再被拆列）。"""
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(header)
+        w.writerows(rows)
+
+
+def ledger_upsert(path, updates):
+    """按 (类别,项目,子项) 为键覆盖/追加「结果总账.csv」；同时清除历史重复键。
+
+    新键插入到同「类别」末行之后（无同类则追加），保证文档分组不变；
+    重复运行同一 updates 不改变文件内容（幂等）。
+    """
+    header, body = read_csv_rows(path)
+    key = lambda r: (r[0], r[1], r[2] if len(r) > 2 else "")
+    seen, merged = {}, []
+    for r in body:                       # 先按首次出现顺序去重（保留最后一个同键值）
+        k = key(r)
+        if k in seen:
+            merged[seen[k]] = r
+        else:
+            seen[k] = len(merged)
+            merged.append(r)
+    for row in updates:
+        row = [str(x) for x in row]
+        k = key(row)
+        if k in seen:
+            merged[seen[k]] = row        # 覆盖
+        else:
+            last = max([i for i, r in enumerate(merged) if r[0] == row[0]], default=None)
+            if last is None:
+                merged.append(row)
+            else:
+                merged.insert(last + 1, row)
+            seen = {key(r): i for i, r in enumerate(merged)}
+    write_csv(path, header, merged)
+    return len(merged)
+
+
+def update_q4_split(path, tf_endo_h, tf_fixed_h, tf_q3_h):
+    """把 q4_split.csv 更新为内生主口径（外生行保留并标注交叉验证）；幂等。
+
+    行：appendix4_endogenous_R(t)（内生主解） + 由其派生的收缩/净效应；
+    外生行 appendix4_R(t) 备注列标注「附件2外生几何（交叉验证）」。
+    """
+    header, body = read_csv_rows(path)
+    shrink = tf_fixed_h - tf_endo_h
+    net = tf_q3_h - tf_endo_h
+    add = {"appendix4_endogenous_R(t)": (f"{tf_endo_h:.8f}", "内生几何主解（收缩由模型预测）"),
+           "shrink_effect_endo_h": (f"{shrink:.8f}", "= appendix4_fixedR − 内生主解"),
+           "shrink_pct_of_fixedR_endo": (f"{shrink / tf_fixed_h * 100:.4f}",
+                                         "收缩效应占固定 R 对照"),
+           "net_effect_endo_h": (f"{net:.8f}", "= problem3 − 内生主解"),
+           "net_pct_of_q3_endo": (f"{net / tf_q3_h * 100:.4f}", "净效应占问题 3")}
+    out = []
+    for r in body:
+        if len(r) < 2:
+            continue
+        case, val = r[0], r[1]
+        if case in add:                       # 去重（幂等）：内生行随后统一追加
+            continue
+        note = r[2] if len(r) > 2 else ""
+        if case == "appendix4_R(t)":
+            note = "附件2外生几何（交叉验证）"
+        out.append([case, val, note])
+    out += [[k, v, n] for k, (v, n) in add.items()]
+    write_csv(path, ["case", "t_f_h", "note"], out)
+    return shrink, net
+
 
 
 def closure_terms(um_, Cs_):
@@ -279,24 +364,37 @@ def main():
         f.write(f"rows,{n60 + 1}\n")
         f.write(f"wall_main_s,{wall_main:.1f}\n")
 
-    ledger = HERE / "结果总账.csv"
-    lines = ledger.read_text(encoding="utf-8").splitlines()
-    out_lines = []
-    for ln in lines:
-        if ln.startswith("t_f,问题4主值"):
-            out_lines.append(f"t_f,问题4主值(未舍入右端点,内生几何),,{tf_h:.6f},h（附件2外生版 50.823025 作交叉验证）")
-        elif ln.startswith("t_f,问题4 Richardson外推"):
-            out_lines.append(f"t_f,问题4 Richardson外推(内生几何),,{tf_rich:.6f},h")
-        elif ln.startswith("敏感性,问题4效应拆分:附4+R(t)"):
-            out_lines.append(f"敏感性,问题4效应拆分:附4+内生R(t)(主),,{tf_h:.4f},Δ{tf_h - tf_h:.4f} h（内生几何）")
-        elif ln.startswith("验证,V5a"):
-            out_lines.append(ln)
-            out_lines.append(f"验证,内生几何自洽R_pred vs 附件2 RMSE,,{rmse_R * 1000:.4f},mm（out-of-fit 检验）")
-            out_lines.append(f"验证,耦合内生t_f vs 外生t_f偏差,,{tf_h - tf_exo160:+.4f},h（−0.22% 量级）")
-        else:
-            out_lines.append(ln)
-    ledger.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
-    print("[总账] 结果总账.csv 的问题 4 行已更新为内生几何值", flush=True)
+    # ---------- q4_split.csv：切到内生主口径（T6 效应拆分） ----------
+    split_path = HERE / "q4_split.csv"
+    hdr_s, body_s = read_csv_rows(split_path)
+    val = {r[0]: r[1] for r in body_s if len(r) >= 2}
+    tf_fixed_h = float(val.get("appendix4_fixedR", "129.10470888"))
+    tf_q3_h = float(val.get("problem3", "57.179925"))
+    shrink, net = update_q4_split(split_path, tf_h, tf_fixed_h, tf_q3_h)
+    print(f"[q4_split] 内生主口径已写入：内生 {tf_h:.6f} h；收缩效应 {shrink:.4f} h"
+          f"（{shrink / tf_fixed_h * 100:.2f}%）；净效应 {net:.4f} h"
+          f"（{net / tf_q3_h * 100:.2f}%）；外生行标注交叉验证", flush=True)
+
+    # ---------- 结果总账：以 (类别,项目,子项) 为键覆盖/去重（幂等） ----------
+    pct_shrink = shrink / tf_fixed_h * 100.0
+    pct_net = net / tf_q3_h * 100.0
+    updates = [
+        ("t_f", "问题4主值(未舍入右端点,内生几何)", "", f"{tf_h:.6f}",
+         f"h（附件2外生版 {tf_exo160:.6f} 作交叉验证）"),
+        ("t_f", "问题4 Richardson外推(内生几何)", "", f"{tf_rich:.6f}", "h"),
+        ("敏感性", "问题4效应拆分:附4固定R(M3引用)", "", f"{tf_fixed_h:.4f}",
+         f"Δ{shrink:+.4f} h（对内生主解，收缩效应 {pct_shrink:.1f}%）"),
+        ("敏感性", "问题4效应拆分:附4+内生R(t)(主)", "", f"{tf_h:.4f}", "—（内生几何主解）"),
+        ("敏感性", "问题4效应拆分:问题3(M2引用)", "", f"{tf_q3_h:.4f}",
+         f"Δ{net:+.4f} h（公式+收缩效应 {pct_net:.1f}%）"),
+        ("验证", "内生几何自洽R_pred vs 附件2 RMSE", "", f"{rmse_R * 1000:.4f}",
+         "mm（out-of-fit 检验）"),
+        ("验证", "耦合内生t_f vs 外生t_f偏差", "", f"{tf_h - tf_exo160:+.4f}",
+         "h（−0.22% 量级）"),
+    ]
+    n_led = ledger_upsert(HERE / "结果总账.csv", updates)
+    print(f"[总账] 结果总账.csv 问题 4 行已按内生几何覆盖（键去重，共 {n_led} 行；重复运行不变）",
+          flush=True)
     print(f"[完成] 总耗时 {time.perf_counter() - t_start:.1f} s", flush=True)
 
 
