@@ -356,7 +356,7 @@ def main():
 
     # ---------- D2 敏感性 ----------
     print("=" * 60, "\n[D2] 敏感性矩阵", flush=True)
-    sens = [("C_e=0.04986(题目口径,主)", tf3_80, 0.0)]
+    sens = [("C_e=0.04986(声明闭合,主)", tf3_80, 0.0)]
     print("[D2] C_e=0.1366（山药解吸支，题外修正）…", flush=True)
     env_yam = lambda tt: (float(np.interp(tt, env_t, TaK)) if tt <= 14400 else float(TaK[-1]), CE_YAM)
     r_yam = sq23.solve_coupled(80, env_yam, 450000.0, out_times=(), dt_max=15.0)
@@ -474,6 +474,23 @@ def main():
     for name, v, typ in budget:
         A(("误差预算", name, "", f"{v:.4g}", typ))
     A(("误差预算", "确定性合成区间", "", f"±{total:.4f}", "h(不含C_e口径)"))
+    # 潜热对照情景（审计 A01；02-代码/latent_scenario.py 产出，# key=value 头；缺失则跳过）
+    _lat = {}
+    _lp = DATA_DIR / "latent_scenario.csv"
+    if _lp.exists():
+        for line in open(_lp, encoding="utf-8"):
+            if line.startswith("# ") and "=" in line:
+                k, v = line[2:].strip().split("=", 1)
+                _lat[k] = v
+            elif not line.startswith("#"):
+                break
+    if "t_f_latent_h" in _lat:
+        A(("情景(潜热A01)", "无潜热基线t_f(N=160)", "", f"{float(_lat['t_f_base_h']):.4f}", "h(基线断言57.1799)"))
+        A(("情景(潜热A01)", "表面相变汇t_f", "", f"{float(_lat['t_f_latent_h']):.4f}",
+           "h(情景假设:L_v=2.4e6,ρ_d,s表面局部)"))
+        A(("情景(潜热A01)", "潜热情景Δt_f", "", f"{float(_lat['delta_t_f_h']):+.4f}", "h(不进主值)"))
+        A(("情景(潜热A01)", "最大逐时|ΔT_s|/|ΔT_center|", "",
+           f"{float(_lat['max_dTs_C']):.2f}/{float(_lat['max_dTcenter_C']):.2f}", "℃"))
     for name, a2, b2, c2, d2_, e2, g2 in crit:
         A(("判据", f"Le[{name}]", "", f"{a2:.4g}–{b2:.4g}", "α/D"))
         A(("判据", f"Bi_m[{name}]", "", f"{c2:.4g}–{d2_:.4g}", "h_m·R/D"))
