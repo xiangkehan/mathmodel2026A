@@ -366,6 +366,11 @@ def main():
     chk("耦合三段误差 达标-72h", "0.127", EVAL["rmse_crossing_to_72h_mm"],
         "q4_endo_eval.csv rmse_crossing_to_72h_mm")
     chk("耦合主解末期半径", "1.1836", EVAL["R_pred_72h_cm"], "q4_endo_eval.csv R_pred_72h_cm")
+    # 60→72 h 的末端降幅：单位易错点（cm→mm 是 ×10，不是 ×100），单独锁死
+    # 该值曾被写成 0.31 mm（偏大 10 倍），源 03-数据/内生收缩模型.md 与 main.tex 两处已更正
+    chk("耦合末端 60→72h 降幅", "0.031",
+        (float(EVAL["R_pred_60h_cm"]) - float(EVAL["R_pred_72h_cm"])) * 10.0,
+        "q4_endo_eval.csv (R_pred_60h_cm − R_pred_72h_cm) × 10 = mm")
     lit("耦合主解末期孔隙率", "30.9\\%", "03-数据/内生收缩模型.md（总账无键）")
     lit("孔隙转正时刻", "9.5 h", "03-数据/内生收缩分析.md（总账无键）")
     lit("留出法区间", "0.045--0.050 mm", "03-数据/内生收缩模型.md §留出法（总账无键）")

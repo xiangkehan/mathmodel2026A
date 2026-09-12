@@ -27,8 +27,7 @@
         缺列时回退 附件2.xlsx、q4_main_steps.npz
   fig7  endogenous_calibrated.csv（附件2 网格上的 R_data、R_pred、残差、失水基线；
         标定用的驱动场同为附件2 几何，见 03-数据/内生收缩模型.md）
-  fig8  q4_endo_fields.npz（内生几何 C、T、R_t → 3D 时空曲面）
-  fig9  q4_endo_fields.npz（同上 → 6 个时刻的圆盘截面）
+  fig9  q4_endo_fields.npz（同问题4 内生时空场 → 6 个时刻的圆盘截面）
   fig10 mechRefit.csv（145 点 R_data/R_pred/残差）、mechRefit_fields.npz（重标定参数、
         全程场量 ū/De/g、末端平衡表 terminal、t_f_h）；口径见
         03-数据/力学升级_修复重标定.md（A04/A05 修复后重标定的幂律吸力力学模型，
@@ -82,7 +81,11 @@ W_DOUBLE = 6.3                 # 双子图：\linewidth（需论文侧改为 wid
 ASPECT = (0.50, 0.62)          # 高/宽 允许区间
 # 例外：fig5 为“长中文类别名”的两行竖排（用户规范允许的排法），纵横比需 0.66 才能让
 # 7.5 pt 类别名不互相压盖——压到 0.62 时实测刻度标签重叠（本条即审计的硬门槛之一）。
-ASPECT_EXEMPT = {"fig5_敏感性": (0.50, 0.70)}
+ASPECT_EXEMPT = {"fig5_敏感性": (0.50, 0.70),
+                 # fig9 为三行内容（两行圆盘 + 一条共享时间轴上下文带），压到 0.62 会把
+                 # 圆盘直径从约 1.3 in 压到约 1.0 in 并挤掉时间带；用户明确要求把六个采样
+                 # 时刻放回时间轴（前快后慢要看得见），故按与 fig5 同样的方式豁免到 0.71。
+                 "fig9_截面演化": (0.50, 0.71)}
 
 # ---- Okabe-Ito 色盲安全色板 ----
 OI = dict(
@@ -317,8 +320,8 @@ def _unreliable_extent(t):
 
 
 def all_axes(fig):
-    """图中**全部**坐标轴，含 inset（`ax.inset_axes` 建的子轴不在 `fig.axes` 里，
-    fig8 的竖排 colorbar 就是 inset；不纳入审计会漏检它的 label 与文字裁切）。"""
+    """图中**全部**坐标轴，含 inset（`ax.inset_axes` 建的子轴不在 `fig.axes` 里；
+    不纳入审计会漏检它的 label 与文字裁切）。"""
     out = list(fig.axes)
     for ax in list(fig.axes):
         out += [c for c in getattr(ax, "child_axes", []) if c not in out]
@@ -445,7 +448,7 @@ def audit_figure(fig, stem, pdf_path):
     rec["tick_ok"] = len(rec["tick_bad"]) == 0
     rec["bar_ok"] = not rec["bar_base"]
     rec["clip_ok"] = not rec["clipped"] and not rec["cap_hit"]
-    # 场图（fig8/fig9）必须有带 label 的 colorbar；其余图不得出现无 label 的 colorbar
+    # 场图（fig9）必须有带 label 的 colorbar；其余图不得出现无 label 的 colorbar
     rec["cb_ok"] = not rec["cb_bad"]
     rec["ok"] = (rec["font_ok"] and rec["title_ok"] and rec["legend_ok"] and rec["tick_ok"]
                  and rec["bar_ok"] and rec["clip_ok"] and not rec["figtext"]
@@ -637,6 +640,10 @@ def fig2():
     axB.axhline(res, color=ROLE["guide"], ls=":", lw=1.0)
     axB.text(29.4, res * 1.30, "输出分辨率 $5\\times10^{-5}$ ℃", fontsize=7.5, color="0.30",
              ha="right", va="bottom")
+    # 对数纵轴上的"深谷"（t≈14/16/21/28 min 掉到 1e-10）不是误差在某时刻骤变，而是
+    # 偏差过零时 |ΔT_num−T_ana| 取到数值零；不注明会被读反，故在分辨率注记下方补一行。
+    axB.text(29.4, res * 0.62, "谷＝偏差过零（非误差增大）", fontsize=7.5, color="0.30",
+             ha="right", va="top")
     axB.set_xlabel("时间 $t$ / min")
     axB.set_ylabel("偏差 / ℃")
     axB.set_xlim(0, 30)
@@ -709,8 +716,11 @@ def fig3():
         tile(ax, ttl)
     axT.set_ylim(27.0, 58.5)
     axC.set_ylim(0.0, 3.15)
-    axC.axhline(TH, color=ROLE["guide"], ls="--", lw=1.1)
-    # 阈值线直接进 y 刻度（0.15 这个刻度即达标阈值），避免图内文字压曲线
+    # 阈值线直接进 y 刻度（0.15 这个刻度即达标阈值），避免图内文字压曲线。
+    # zorder=1 让剖面（默认 zorder=2）压在阈值线之上：t=57 h 的剖面在中段几乎贴着
+    # 0.15，原先把阈值线画在曲线之上，灰色虚线段直接盖在黄色曲线上，读者会把阈值线
+    # 误认成 t=57 h 的曲线（实测全分辨率裁剪确认）。
+    axC.axhline(TH, color=ROLE["guide"], ls="--", lw=1.1, zorder=1)
     axC.set_yticks([0.0, TH, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0])
     c36, c57 = prof(C, 36.0)[0], prof(C, 57.0)[0]
     cs57 = prof(C, 57.0)[-1]
@@ -1265,110 +1275,21 @@ def fig7():
     save(fig, "fig7_内生收缩贴合")
 
 
-# ====================== F8 药柱 3D 时空演化 ======================
-def fig8():
-    """问题 4 内生版药柱的时空场：两张 3D 曲面，定量读数交给 fig12/fig13/fig16。
-
-    (a) 水分浓度场 $C(s,t)$：$s=r/R(t)$ 归一化（拉格朗日）坐标——移动域被拉直，
-        壳核结构与表面轨迹一眼可见（viridis）；
-    (b) 温度场 $T(r,t)$：固定物理网格 $r$（域外 $r>R(t)$ 处为 NaN，自由边即半径收缩；
-        coolwarm）。低仰角视角、竖排 colorbar 带单位。
-    数据源 03-数据/q4_endo_fields.npz（t_s/r_cm/C/T/R_t/Cs）。
-    """
-    d = np.load(DATA_DIR / "q4_endo_fields.npz")
-    t_s, r_cm = d["t_s"], d["r_cm"]
-    C, T, R_t, Cs = d["C"], d["T"], d["R_t"], d["Cs"]
-    h = t_s / 3600.0
-
-    ti = np.arange(0, len(h), 4)          # 507 帧抽稀到 127，保持 R(t) 边界分辨率
-    ri = np.arange(0, len(r_cm), 2)       # 101 网格抽稀到 51
-    hh, rr = h[ti], r_cm[ri]
-    TT, RR = np.meshgrid(hh, rr, indexing="ij")
-    ZT = T[np.ix_(ti, ri)]
-    ZC = C[np.ix_(ti, ri)]
-    SS = (r_cm / R_t[:, None])[np.ix_(ti, ri)]     # s = r/R(t) ∈ [0,1]（域外为 NaN）
-
-    c_lo, c_hi = float(np.nanmin(C)), float(np.nanmax(C))
-    t_lo, t_hi = float(np.nanmin(T)), float(np.nanmax(T))
-    probe = [(len(h) // 3, int(np.sum(~np.isnan(C[len(h) // 3]))) - 1),
-             (2 * len(h) // 3, int(np.sum(~np.isnan(C[2 * len(h) // 3]))) - 1)]
-
-    fig = plt.figure(figsize=(W_DOUBLE, 3.8))
-    # 竖排 colorbar 一律移到 3D 面板**之外**（(a) 左外侧、(b) 右外侧）：原来用 inset 压在曲面上，
-    # (a) 的色条遮住了 $s\approx0.8$–0.95 的一段高含水率面；且 (b) 的 z 轴标签与 (a) 的色条标签
-    # 只隔约 40 px，容易被读成一个标签。两个 3D 轴相应收窄（0.395→0.320）并各自内缩，
-    # 让出左/右外侧的色条位；色条用 ax.inset_axes 以负的/大于 1 的 x 定到 3D 轴之外（比例＝轴宽）。
-    rects = [(0.155, 0.245, 0.320, 0.615), (0.588, 0.245, 0.320, 0.615)]
-    cbar_rects = [(-0.403, 0.211, 0.047, 0.561), (1.025, 0.211, 0.047, 0.561)]
-    specs = ((SS, ZC, "viridis", c_lo, c_hi, "(a)", "水分场：拉格朗日坐标 $s$",
-              "水分浓度 $C$ / (kg/kg)", "$s = r/R(t)$"),
-             (RR, ZT, "coolwarm", t_lo, t_hi, "(b)", "温度场：固定网格 $r$",
-              "温度 $T$ / ℃", "$r$ / cm"))
-    for (X, Z, cmap_name, lo, hi, tag, title, cbl, xlab), rect, cbrect in zip(
-            specs, rects, cbar_rects):
-        ax = fig.add_axes(rect, projection="3d")
-        cmap = plt.get_cmap(cmap_name).copy()
-        cmap.set_bad(alpha=0.0)           # 域外（NaN）不画
-        norm = matplotlib.colors.Normalize(vmin=lo, vmax=hi)
-        ax.plot_surface(X, TT, Z, cmap=cmap, norm=norm, rcount=Z.shape[1],
-                        ccount=Z.shape[0], linewidth=0, antialiased=False, shade=False)
-        if tag == "(a)":
-            ax.plot(np.ones_like(hh), hh, Cs[ti], color=ROLE["data"], lw=1.4, zorder=10)
-            # “表面轨迹”标签贴住该曲线的中段（原位置 t=40 h、z≈1.6，离曲线 z≈0.05 太远）；
-            # z 由数据读出并抬高 0.30 kg/kg，白底让深色文字在深紫色场面上也可读。
-            t_lab = 24.0
-            ax.text(0.78, t_lab, float(np.interp(t_lab, h, Cs)) + 0.30, " 表面轨迹",
-                    fontsize=7.5, color=ROLE["data"], zorder=20,
-                    bbox=dict(boxstyle="round,pad=0.18", fc="white", ec="none", alpha=0.80))
-            ax.set_xticks([0.0, 0.25, 0.5, 0.75, 1.0])
-        else:
-            ax.plot(R_t[ti], hh, zs=lo, zdir="z", color=ROLE["data"], lw=1.2, zorder=10)
-            ax.text(1.66, 16.0, lo, " $R(t)$", fontsize=7.5, color=ROLE["data"], zorder=20)
-            ax.set_xticks([0.5, 1.0, 1.5, 2.0])
-        ax.set_xlim(0, 1.0 if tag == "(a)" else 2.0)
-        ax.set_ylim(0, float(h[-1]))
-        ax.set_zlim(lo, hi)
-        ax.set_yticks([0, 10, 20, 30, 40, 50])
-        ax.set_zticks([np.round(v, 2) for v in np.linspace(lo, hi, 3)])
-        ax.set_xlabel(xlab, labelpad=3)
-        ax.set_ylabel("$t$ / h", labelpad=3)
-        # (a) 不再画 z 轴标签：轴外左侧的 colorbar 已写着同一串“水分浓度 $C$ / (kg/kg)”，
-        # 再写一遍两者只隔约 0.1 in，会被读成一个标签（正是本次要消除的问题）；原布局里该
-        # 轴标签本就被画到画布之外（不可见），去掉无损。z 轴刻度数字照旧保留。
-        if tag == "(b)":
-            ax.set_zlabel(cbl.split(" / ")[0] + " / " + cbl.split(" / ")[1], labelpad=2)
-        ax.tick_params(labelsize=7.5, pad=1)
-        ax.view_init(elev=20, azim=-118 if tag == "(a)" else -122)
-        ax.set_box_aspect((1.0, 1.5, 0.95), zoom=1.26)
-        cax = ax.inset_axes(cbrect)      # (a) 在轴外左侧、(b) 在轴外右侧，均不压曲面
-        cb = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap), cax=cax,
-                          orientation="vertical")
-        cb.set_label(cbl, fontsize=7.5)
-        cb.ax.tick_params(labelsize=7.5)
-        panel(ax, tag, dx=0.005)
-        tile(ax, title)
-
-    print(f"  [F8] C 全域 {c_lo:.4f}–{c_hi:.4f} kg/kg；T 全域 {t_lo:.2f}–{t_hi:.2f} ℃；"
-          f"R {R_t[0]:.4f}→{R_t[-1]:.4f} cm（{h[0]:.2f}–{h[-1]:.2f} h，{len(h)} 帧）；"
-          f"拉格朗日坐标 $s$=r/R(t)∈[0,1]（面板 a）、温度用固定 $r$（面板 b）；"
-          f"抽查 C[i={probe[0][0]}, r={r_cm[probe[0][1]]:.2f}]={C[probe[0]]:.5f}、"
-          f"C[i={probe[1][0]}, r={r_cm[probe[1][1]]:.2f}]={C[probe[1]]:.5f}；"
-          f"表面末值 $C_s$={Cs[-1]:.4f} kg/kg", flush=True)
-    save(fig, "fig8_药柱3D演化")
-
 
 # ====================== F9 截面演化 ======================
 def fig9():
     """问题4 内生版药柱的截面热图：6 个代表时刻的圆盘截面（半径随时间收缩）。
 
-    数据源同 fig8：每个时刻把 C(r,t) 插到 Cartesian 网格上、r>R(t) 处留白，
+    每个时刻把 C(r,t) 插到 Cartesian 网格上、r>R(t) 处留白，
     6 盘共享同一色标（全域 min–max）与同一个 colorbar。
     """
     d = np.load(DATA_DIR / "q4_endo_fields.npz")
     t_s, r_cm = d["t_s"], d["r_cm"]
     C, R_t = d["C"], d["R_t"]
     h = t_s / 3600.0
-    c_lo, c_hi = float(np.nanmin(C)), float(np.nanmax(C))
+    # 色阶端点（只作画图端点，不参与数据运算；与 fig13 同口径：左端在数据极小值 0.0525 之下、
+    # 右端在初值 2.55 之上）。取对数色阶的理由见下方 imshow 处的注释。
+    c_lo, c_hi = 0.05, 2.6
 
     t_show = [0.0, 5.0, 15.0, 25.0, 40.0, 50.0]
     idx = [int(np.argmin(np.abs(h - th))) for th in t_show]
@@ -1376,20 +1297,34 @@ def fig9():
     XX, YY = np.meshgrid(xg, xg)
     Rn = np.hypot(XX, YY)
 
-    fig = plt.figure(figsize=(W_DOUBLE, 3.9))
-    fig.subplots_adjust(left=0.045, right=0.885, top=0.885, bottom=0.105,
-                        wspace=0.10, hspace=0.30)
+    # 版式（2026-09-13 改）：上区 2×3 圆盘，下区新增一条**共享时间轴上下文带**。
+    # 原因：六个盘等宽排布，但采样时刻是 0/5/15/25/40/50 h（间隔 5/10/10/15/10 h），
+    # 排版把时间间隔抹平了——盘与盘看起来"变化量相同"，而真实收缩速度是前快后慢
+    # （R 前 5 h 降 0.58 cm，后 10 h 降不到 0.01 cm）。加上时间带后，读者既能看到
+    # R(t) 的陡降转平，又能看到六个盘各自落在曲线的哪个位置。
+    # 纵向额度（in，总计 4.4）：0.32 带内 x 轴标题 + 0.62 时间带 + 0.05 间隙 +
+    # 0.25 第二行轴标带 + 1.31 第二行盘 + 0.23 行间标题 + 1.31 第一行盘 + 0.31 顶边距。
+    fig = plt.figure(figsize=(W_DOUBLE, 4.4))
     cmap = plt.get_cmap("viridis").copy()
     cmap.set_bad("white")                 # 域外留白
+    X0, WCOL, GAP = 0.045, 0.260, 0.030   # 盘的三列（0.045–0.885，给右侧色条留位）
+    Y_ROW = (0.6325, 0.2818)              # 第一行 / 第二行的底边
+    H_ROW = 0.2980
     im = None
     for k, (th, i) in enumerate(zip(t_show, idx)):
-        ax = fig.add_subplot(2, 3, k + 1)
+        col, row = k % 3, k // 3
+        ax = fig.add_axes([X0 + col * (WCOL + GAP), Y_ROW[row], WCOL, H_ROW])
         prof = C[i]
         ok = ~np.isnan(prof)
         Z = np.interp(Rn, r_cm[ok], prof[ok])          # 按半径插值到圆盘网格
         Z = np.where(Rn <= R_t[i], Z, np.nan)          # 域外（r>R(t)）留白
+        # 对数色阶（2026-09-12 改）：$C$ 全域 0.0525–2.55 跨近两个数量级，线性色阶下
+        # t=15/25/40/50 h 四盘的 C∈(0.05,0.15) 全挤在最暗的约 4% 色带里，四盘颜色完全相同，
+        # 读者看不出干燥在推进。改 LogNorm 后每个盘自身跨约 27–38% 色带、相邻盘整体色位相差
+        # 约 27%，壳核梯度与盘间差异同时在颜色上可辨（与 fig13 同一处理与同一色阶端点）。
         im = ax.imshow(Z, origin="lower", extent=[xg[0], xg[-1], xg[0], xg[-1]],
-                       cmap=cmap, vmin=c_lo, vmax=c_hi, interpolation="nearest")
+                       cmap=cmap, norm=matplotlib.colors.LogNorm(vmin=c_lo, vmax=c_hi),
+                       interpolation="nearest")
         ax.add_patch(plt.Circle((0, 0), R_t[0], fill=False, ec="0.55", lw=0.6, ls=":"))
         ax.set_xlim(xg[0], xg[-1])
         ax.set_ylim(xg[0], xg[-1])
@@ -1408,10 +1343,36 @@ def fig9():
         else:
             ax.set_ylabel("$y$ / cm", labelpad=1)
         tile(ax, f"$t$={th:g} h，$R$={R_t[i]:.2f} cm")
-    cax = fig.add_axes([0.905, 0.245, 0.016, 0.52])
+    cax = fig.add_axes([0.905, 0.345, 0.016, 0.505])
     cb = fig.colorbar(im, cax=cax)
     cb.set_label("水分浓度 $C$ / (kg/kg)", fontsize=7.5)
+    # 对数色阶下 matplotlib 的默认刻度是 10 的整数次幂、标签用科学计数（$1\times10^{-1}$），
+    # 故与 fig13 一样显式给刻度并固定格式：只把 0.15 写成两位小数（即题目达标阈值），其余一位。
+    cb.set_ticks([0.1, TH, 0.5, 1.0, 2.0])
+    cb.ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(
+        lambda v, _: f"{TH:.2f}" if abs(v - TH) < 1e-9 else f"{v:.1f}"))
     cb.ax.tick_params(labelsize=7.5)
+
+    # ---- 共享时间轴上下文带：把六个盘放回时间轴 ----------------------------------
+    # x 轴刻度**就是**六个采样时刻，因此刻度本身就是不均匀的（0/5 挤在一起、25/40/50 拉开），
+    # 曲线 R(t) 前陡后平；竖直虚线把每个盘对回时间轴。
+    # 左边界比圆盘列右移 0.027 图宽：时间带是满宽矮轴（无 equal aspect 的侧边余量），
+    # y 轴标题"$R$ / cm"按 X0 摆会超出画布 6.5 px（审计裁切项实测）。
+    axS = fig.add_axes([X0 + 0.027, 0.0727, 0.840 - 0.027, 0.1409])
+    axS.plot(h, R_t, color=ROLE["model"], lw=1.2, zorder=3)
+    for th in t_show:
+        axS.axvline(th, color="0.70", ls=":", lw=0.7, zorder=1)
+    axS.set_xlim(0.0, 52.0)
+    axS.set_ylim(1.14, 2.10)
+    axS.set_xticks(t_show)
+    axS.set_yticks([1.2, 1.4, 1.6, 1.8, 2.0])
+    axS.set_xlabel("时间 $t$ / h（刻度即六个采样时刻）", labelpad=1)
+    axS.set_ylabel("$R$ / cm", labelpad=1)
+    axS.tick_params(labelsize=7.5, pad=1)
+    style_axis(axS, grid="y")
+    axS.text(51.4, 1.145, "内生半径 $R(t)$", fontsize=7.5, color=ROLE["model"],
+             ha="right", va="bottom")
+
     # 抽查：对同一帧，比较 npz 网格原值与“插值到圆盘 Cartesian 网格”的值
     i_chk, i2_chk = idx[3], idx[1]
     prof, okp = C[i_chk], ~np.isnan(C[i_chk])
@@ -1491,19 +1452,29 @@ def fig10():
         axA.text(0.5 * (x0 + x1), 2.055, lab, ha="center", va="center",
                  fontsize=7.5, color="0.35")
     axA.plot(h, R_data, color=ROLE["data"], lw=1.6, zorder=5, label="附件2 实测")
-    axA.plot(h, R_pred, color=ROLE["model"], ls="--", lw=1.3,
-             label=f"重标定力学模型（RMSE={rmse:.3f} mm）")
+    # 图例标签内不再带 RMSE 数字：面板宽 1.81 in，标签写成"重标定力学模型（RMSE=0.522 mm）"
+    # 会让图例框宽达约 1.9 in（超过面板本身），无论放哪个角都会横向溢出并压住下降段曲线。
+    # 偏差数字按本刊约定由论文 \caption 承载（该图注已写明 RMSE 0.522 mm 与三段残差）。
+    axA.plot(h, R_pred, color=ROLE["model"], ls="--", lw=1.3, label="重标定力学模型")
     axA.plot(h_ideal, R_ideal, color=ROLE["ref"], ls=":", lw=1.2, label="失水理想基线")
     axA.axhline(plat_data, color=ROLE["data"], ls=":", lw=0.9)
     axA.axhline(plat_pred, color=ROLE["model"], ls=":", lw=0.9)
-    axA.text(70.0, 1.075, f"平台：实测 {plat_data:.3f} / 模型 {plat_pred:.4f} cm",
+    # 平台标注：原在 y=1.075（整行占 1.075–1.121 cm），右半段被下探到 1.1128 cm 的
+    # 失水理想基线穿过（实测全分辨率裁剪确认）。压到轴底后留约 0.015 cm 净空，
+    # 整行不再与任何曲线相交。
+    axA.text(70.0, 1.052, f"平台：实测 {plat_data:.3f} / 模型 {plat_pred:.4f} cm",
              ha="right", va="bottom", fontsize=7.5, color="0.30")
     axA.set_xlim(0, 72)
     axA.set_ylim(1.05, 2.10)
     axA.set_xlabel("烘干时间 $t$ / h")
     axA.set_ylabel("药材半径 $R$ / cm")
     style_axis(axA, grid="y")
-    axA.legend(loc="center right", handlelength=1.8, labelspacing=0.26)
+    # 图例原为 loc="center right"，落在 t≈2–20 h、R≈1.5–1.75 cm 处，正压在下降段的
+    # 三条曲线上（实测全分辨率裁剪确认）。面板上部 t>20 h、R>1.3 cm 除顶端三段带名外
+    # 全空，改用轴内坐标 (1.0, 0.86) 定位：图例占 1.77–1.95 cm、x 从约 17 h 起，
+    # 与曲线（该 y 带内只出现在 t≈1–2.5 h）和顶端带名（y=2.055）都不相交。
+    axA.legend(loc="upper right", bbox_to_anchor=(1.0, 0.86), handlelength=1.8,
+               labelspacing=0.26)
     panel(axA, "(a)", dx=-0.135)
     tile(axA, "重标定拟合：力学模型 vs 附件2")
 
@@ -2087,7 +2058,7 @@ def fig17():
 
 
 FIGS = {"fig1": fig1, "fig2": fig2, "fig3": fig3, "fig5": fig5, "fig6": fig6,
-        "fig7": fig7, "fig8": fig8, "fig9": fig9, "fig10": fig10,
+        "fig7": fig7, "fig9": fig9, "fig10": fig10,
         "fig11": fig11, "fig12": fig12, "fig13": fig13, "fig14": fig14,
         "fig15": fig15, "fig16": fig16, "fig17": fig17}
 
@@ -2098,7 +2069,7 @@ def main():
     ap.add_argument("--no-cache", action="store_true", help="fig4 对照曲线强制重算")
     a = ap.parse_args()
     plt.rcParams.update(RC)
-    want = a.only or ["fig1", "fig2", "fig3", "fig4", "fig5", "fig6", "fig7", "fig8",
+    want = a.only or ["fig1", "fig2", "fig3", "fig4", "fig5", "fig6", "fig7",
                       "fig9", "fig10", "fig11", "fig12", "fig13", "fig14", "fig15",
                       "fig16", "fig17"]
     for k in want:
