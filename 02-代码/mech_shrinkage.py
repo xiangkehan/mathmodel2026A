@@ -25,10 +25,18 @@ RHO_W = 1000.0
 
 
 class MechParams:
-    """材料/情景参数。压力单位任意（A 级静力绝对尺度不可辨识，只扫无量纲比）。"""
+    """材料/情景参数。压力单位任意（A 级静力绝对尺度不可辨识，只扫/标定比值）。
+
+    ret_model：
+    - 'linear'：p_c=p*(1−S)（A 级低阶检验本构，吸力随 S→0 饱和于 p*）；
+    - 'power'：p_c=p*(1−S)/S^q（van Genuchten 类幂律保水形式，
+      土壤/食品干燥常用：吸力随 S→0 以 S^{-q} 持续增大（0<q<1），
+      且毛细能量 ∫p_c dS 有界；p̄_c(0)=p*/[(1−q)(2−q)] 大而有限）。
+    """
 
     def __init__(self, rho_d0, rho_s, Kinf=1.0, Ginf=1.0 / 3, K1=1.0, G1=1.0 / 3,
-                 p_star=1.0, tau0=1.0e6, tau_exp=4.0):
+                 p_star=1.0, tau0=1.0e6, tau_exp=4.0, ret_model="linear", q_pow=0.8,
+                 Pi_t0=0.0, k_tur=2.0):
         self.rho_d0 = rho_d0
         self.rho_s = rho_s
         self.Kinf, self.Ginf = Kinf, Ginf
@@ -36,19 +44,44 @@ class MechParams:
         self.p_star = p_star
         self.tau0 = tau0
         self.tau_exp = tau_exp      # τ(U)=tau0·(C0/U)^tau_exp（情景形式，声明为假设）
+        self.ret_model = ret_model
+        self.q_pow = q_pow
+        self.Pi_t0 = Pi_t0          # 初始膨压（K∞ 单位；取 K∞=1 MPa 时按 MPa 解读）
+        self.k_tur = k_tur          # 膨压松弛指数（随失水单调下降）
         self.s0 = rho_d0 / rho_s
 
     def tau(self, U, T=323.0):
         return self.tau0 * (C0 / np.maximum(np.asarray(U, float), 0.02)) ** self.tau_exp
 
+    def turgor(self, U):
+        """细胞膨压 Π_t(U)=Π_t0·(U/C0)^k_tur（植物生理：渗透压维持细胞饱满，
+        失水时膨压松弛 → 基体整体压缩；与毛细项各司其职，不重复归因）。"""
+        return self.Pi_t0 * (np.asarray(U, float) / C0) ** self.k_tur
+
+    def pc(self, S):
+        """保水关系 p_c(S)（吸力，≥0，随 S 增大而降低）。"""
+        S = np.maximum(np.asarray(S, float), 1e-12)
+        if self.ret_model == "linear":
+            return self.p_star * (1.0 - S)
+        return self.p_star * (1.0 - S) / S ** self.q_pow
+
     def pbar_c(self, S):
-        return 0.5 * self.p_star * (1.0 - S**2)
+        """p̄_c = ∂ψ_cap/∂J = f(S)+S·p_c(S)，f(S)=∫_S^1 p_c(s)ds（解析）。"""
+        S = np.asarray(S, float)
+        if self.ret_model == "linear":
+            return 0.5 * self.p_star * (1.0 - S**2)
+        q = self.q_pow
+        Sc = np.maximum(S, 1e-12)
+        f = self.p_star * ((1.0 - Sc ** (1.0 - q)) / (1.0 - q)
+                           - (1.0 - Sc ** (2.0 - q)) / (2.0 - q))
+        return f + self.p_star * (1.0 - Sc) * Sc ** (1.0 - q)
 
     @property
     def e_star(self):
         w0 = self.rho_d0 * C0 / RHO_W
         S0 = w0 / (1.0 - self.s0)
-        return self.pbar_c(S0) / self.Kinf
+        # 初始总应力为零：弹性预应变平衡（毛细吸力 − 膨压），不重复归因
+        return (float(self.pbar_c(S0)) - self.Pi_t0) / self.Kinf
 
 
 def elem_quantities(r, X, U, P):
@@ -96,7 +129,7 @@ def solve_mechanics(r_guess, Z_old, U, T, dt, X, P, active0=None, tol=1e-10):
         H = (2.0 * P.Ginf * devE + P.Kinf * (trE - e_)[:, None]
              + 2.0 * P.G1 * devEmZ + P.K1 * trEmZ[:, None])
         zeta = np.array([zeta_map.get(e, 0.0) for e in range(M)])
-        sig = H / J[:, None] + P.pbar_c(S)[:, None] - zeta[:, None]
+        sig = H / J[:, None] + P.pbar_c(S)[:, None] - P.turgor(U)[:, None] - zeta[:, None]
         return lam_r, lam_t, J, g, S, Z, sig
 
     def residual(y, active_list):
@@ -193,7 +226,7 @@ def mass_heat_step(U, T, dt, Ta, Cenv, r, X, Jc, P, Dof, kof, acp):
         bL = Df * dt / (rqf ** 2 * dc * dqe[1:])      # 行 e 左面系数
         Us = Un[-1]
         for _s in range(40):
-            Ds = float(Dof(Us, Tn[-1]))
+            Ds = float(Dof(0.5 * (Us + Un[-1]), Tn[-1]))   # 与参考求解器一致：半单元中点 D
             R_int = rq_s ** 2 * (dqe[-1] / 2.0) / Ds
             R_ext = rq_s / HM
             Us2 = (Un[-1] / R_int + Cenv / R_ext) / (1.0 / R_int + 1.0 / R_ext)
@@ -201,7 +234,7 @@ def mass_heat_step(U, T, dt, Ta, Cenv, r, X, Jc, P, Dof, kof, acp):
                 Us = Us2
                 break
             Us = Us2
-        Ds = float(Dof(Us, Tn[-1]))
+        Ds = float(Dof(0.5 * (Us + Un[-1]), Tn[-1]))
         gs = dt / ((rq_s ** 2 * (dqe[-1] / 2.0) / Ds + rq_s / HM) * dqe[-1])
         diag = 1.0 + np.concatenate(([0.0], bL)) + np.concatenate((bR, [0.0]))
         diag[-1] += gs
@@ -212,15 +245,14 @@ def mass_heat_step(U, T, dt, Ta, Cenv, r, X, Jc, P, Dof, kof, acp):
         A[1, :] = diag
         A[2, :-1] = -bL
         Un2 = solve_banded((1, 1), A, rhs)
-        # ---- 热（r 加权，单元权重 wc=R0²J_e/2）----
+        # ---- 热（q 形式通量 Φ=(k/r_q²)T_q，与湿分同构；单元权重 wc=R0²J_e/2）----
         a = acp(Un2)
         kf = np.array([float(kof(0.5 * (Un2[j - 1] + Un2[j]))) for j in range(1, M)])
-        rf = 0.5 * (r[:-2] + r[2:])
         wc = (R0 ** 2 / 2.0) * Jc
-        chR = kf * rf / rqf * dt / (dc * dqe[:-1] * wc[:-1] * a[:-1])
-        chL = kf * rf / rqf * dt / (dc * dqe[1:] * wc[1:] * a[1:])
+        chR = kf * dt / (rqf ** 2 * dc * dqe[:-1] * wc[:-1] * a[:-1])
+        chL = kf * dt / (rqf ** 2 * dc * dqe[1:] * wc[1:] * a[1:])
         ks = float(kof(0.5 * (Us + Un2[-1])))
-        Rh = rq_s * (dqe[-1] / 2.0) / (ks * rs) + 1.0 / (H * rs)
+        Rh = rq_s ** 2 * (dqe[-1] / 2.0) / ks + rq_s / H   # 内阻 rq²Δq/(2k) + 外阻 rq/h
         chs = dt / (Rh * wc[-1] * a[-1])
         diagT = 1.0 + np.concatenate(([0.0], chL)) + np.concatenate((chR, [0.0]))
         diagT[-1] += chs

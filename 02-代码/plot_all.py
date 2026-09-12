@@ -28,8 +28,9 @@
         标定用的驱动场同为附件2 几何，见 03-数据/内生收缩模型.md）
   fig8  q4_endo_fields.npz（内生几何 C、T、R_t → 3D 时空曲面）
   fig9  q4_endo_fields.npz（同上 → 6 个时刻的圆盘截面）
-  fig10 mechA_scenarios.csv（情景标量）、mechA_fields_central.npz（中央情景场）；
-        Π_c=0.2/5/15 的场由 03-数据/run_mech_A.py 的求解器现算（见 力学升级_A级.md）
+  fig10 mechRefit.csv（145 点 R_data/R_pred/残差）、mechRefit_fields.npz（重标定参数、
+        全程场量 ū/De/g）；口径见 03-数据/力学升级_重标定.md（修正后重标定的幂律
+        吸力力学模型，取代此前的线性检验本构情景族）
 
 口径常数（非结果数字，仅用于画线/判定，来源已注明）：
   TH = 0.15 kg/kg  —— 题目问题 3 原文“水分浓度应低于 0.15 kg/kg”
@@ -1322,121 +1323,125 @@ def fig9():
     save(fig, "fig9_截面演化")
 
 
-# ====================== F10 力学升级（A 级情景） ======================
+# ====================== F10 力学升级（重标定幂律拟合） ======================
 def fig10():
-    """A 级力学驱动内生收缩模型的情景研究：R(t) 情景 / 孔隙非负 / 结皮 De 诊断。
+    """修正后重标定的幂律力学模型对附件2 的拟合（三联：拟合 / 残差 / 平台机制）。
 
-    数据源：03-数据/mechA_scenarios.csv（情景标量：RMSE、R_end、g_min）+
-    mechA_fields_central.npz（中央情景 Π_c=1、Π_τ=1 的场）。其余 Π_c 的 R(t)/g(t)/De(t)
-    用本仓库同一求解器现算（只读导入 03-数据/run_mech_A.py 的 P_of + coupled_run，
-    M=16/dt=900 s），并与 CSV / 力学升级_A级.md 的数字逐值核对。口径见 03-数据/力学升级_A级.md。
+    数据源：03-数据/mechRefit.csv（145 点 R_data、R_pred、残差 mm）+
+    mechRefit_fields.npz（重标定参数、全程场量 ū/De/g、末端平衡表）；口径见
+    03-数据/力学升级_重标定.md（模型：幂律保水 p_c=p*(1−S)/S^β + 松弛蠕变，
+    吸力单驱动；本图取代此前的线性检验本构情景族）。
     """
-    sys.path.insert(0, str(DATA_DIR))          # run_mech_A 在 03-数据/（只读导入）
-    from run_mech_A import P_of, coupled_run, rmse_seg
+    from mech_shrinkage import MechParams
+    from solver_q1 import C0, R0
 
-    head, rows = read_csv_rows("mechA_scenarios.csv")
-    scen = {(float(r["Pi_c"]), float(r["Pi_tau"])): r for r in rows}
-    d = np.load(DATA_DIR / "mechA_fields_central.npz")
-    t_att, R_att2 = read_att2()
+    head, rows = read_csv_rows("mechRefit.csv")
+    t_s = np.array([float(r["t_s"]) for r in rows])
+    h = t_s / 3600.0
+    R_data = np.array([float(r["R_data_cm"]) for r in rows])
+    R_pred = np.array([float(r["R_pred_cm"]) for r in rows])
+    res = np.array([float(r["residual_mm"]) for r in rows])      # R_pred − R_data（mm）
+    d = np.load(DATA_DIR / "mechRefit_fields.npz")
+    p_star, beta = float(d["fit_params"][0]), float(d["fit_params"][1])
 
-    PHI_G0 = 0.1726        # 初始孔隙率（口径常数：力学升级_A级.md §2，体积审计下界）
-    T_END, DT, M = 60 * 3600.0, 900.0, 16
-    PI_C = (0.2, 1.0, 5.0, 15.0)
-    t0 = time.perf_counter()
-    runs = {1.0: dict(t=d["t"], R=d["R"], gmin=d["gmin"], gS=d["gS"], DeS=d["DeS"])}
-    for pic in PI_C:
-        if pic not in runs:
-            runs[pic] = coupled_run(P_of(PHI_G0, pic, 1.0), t_end=T_END, dt=DT, M=M)
-    # 现算值与 CSV（Π_c=0.2/1/5）逐值核对；Π_c=15 无 CSV 行，与 力学升级_A级.md §4 核对
-    chk = {}
-    for pic in PI_C:
-        o = runs[pic]
-        rm = rmse_seg(o["t"], o["R"])[0] * 100
-        if (pic, 1.0) in scen:
-            ref = float(scen[(pic, 1.0)]["rmse_cm"])
-            assert abs(rm - ref) < 5e-3, (pic, rm, ref)
-        chk[pic] = dict(rmse=rm, rend=float(o["R"][-1]) * 100,
-                        gmin=float(np.min(o["gmin"])), demax=float(np.max(o["DeS"])))
-    assert abs(chk[15.0]["rmse"] - 0.185) < 2e-3 and abs(chk[15.0]["rend"] - 1.393) < 2e-3, \
-        f"Π_c=15 与力学升级_A级.md §4 不符：{chk[15.0]}"
-    assert min(v["gmin"] for v in chk.values()) > 0.0, chk      # 全程 g≥0
-    assert 1e5 < chk[1.0]["demax"] < 1e8, chk[1.0]              # De 升到 1e6 量级
+    H_SEG = (3.5, 21.0)                    # 急缩 / 缓缩 / 平台 分界（力学升级_重标定.md §3）
+    rmse = float(np.sqrt(np.mean(res ** 2)))
+    seg = [float(np.sqrt(np.mean(res[(h >= a) & (h < b)] ** 2)))
+           for a, b in ((0.0, H_SEG[0]), (H_SEG[0], H_SEG[1]), (H_SEG[1], 1e9))]
+    r_max = float(np.max(np.abs(res)))
+    plat_pred, plat_data = float(R_pred[-1]), float(R_data[-1])
+    De_lo, De_hi = float(np.min(d["DeS"])), float(np.max(d["DeS"]))
+    g_min = float(np.min(d["gS"]))
+    # 与 力学升级_重标定.md §3 逐项核对（总/分段 RMSE、平台、max 偏差、De、g_min）
+    assert abs(rmse - 0.502) < 2e-3 and np.allclose(seg, [1.135, 0.843, 0.161],
+                                                    atol=2e-3), (rmse, seg)
+    assert abs(plat_pred - 1.1751) < 5e-4 and abs(plat_data - 1.198) < 5e-4
+    assert abs(r_max - 1.52) < 0.01 and De_hi < 1e-2 and g_min > 0.0, (r_max, De_hi, g_min)
+    # 失水理想基线：同一次重标定求解的 ū(t) 等容反推
+    h_ideal = d["t"] / 3600.0
+    R_ideal = R0 * 100.0 * np.sqrt((1.0 + d["Um"]) / (1.0 + C0))
 
     fig, (axA, axB, axC) = plt.subplots(1, 3, figsize=(W_DOUBLE, 3.4),
-                                        gridspec_kw=dict(width_ratios=[1.25, 1.0, 1.0]))
-    fig.subplots_adjust(left=0.075, right=0.985, top=0.865, bottom=0.17, wspace=0.35)
+                                        gridspec_kw=dict(width_ratios=[1.25, 1.0, 0.95]))
+    fig.subplots_adjust(left=0.075, right=0.985, top=0.865, bottom=0.17, wspace=0.36)
 
-    # ---- (a) R(t) 情景 vs 附件2 ----
-    axA.plot(t_att / 3600.0, R_att2, color=ROLE["data"], lw=1.6, zorder=5)
-    styles = ((ROLE["model2"], ":"), (ROLE["model"], "--"),
-              (ROLE["analytic"], "-."), (ROLE["ref"], "-"))
-    for pic, (col, ls) in zip(PI_C, styles):
-        o = runs[pic]
-        axA.plot(o["t"] / 3600.0, o["R"] * 100, color=col, ls=ls, lw=1.2)
-        # 各情景在末端的半径（曲线彼此分离，直标避免图例压线）
-        axA.text(57.0, float(o["R"][-1]) * 100 + 0.012,
-                 f"$\\Pi_c$={pic:g}（RMSE {chk[pic]['rmse']:.2f}）", ha="right",
-                 va="bottom",
-                 fontsize=7.5, color=col)
-    axA.axhline(float(R_att2[-1]), color=ROLE["guide"], ls=":", lw=1.0)
-    axA.text(59.0, float(R_att2[-1]) - 0.020, "附件2 平台 1.198 cm", ha="right",
-             va="top", fontsize=7.5, color="0.30")
-    axA.text(57.0, chk[15.0]["rend"] - 0.022, f"$R_{{end}}$={chk[15.0]['rend']:.3f}",
-             ha="right", va="top", fontsize=7.5, color=ROLE["ref"])
-    axA.set_xlim(0, 60)
-    axA.set_ylim(1.15, 2.05)
+    # ---- (a) 重标定拟合 ----
+    for x0, x1 in ((0.0, H_SEG[0]), (H_SEG[0], H_SEG[1]), (H_SEG[1], 72.0)):
+        axA.axvspan(x0, x1, color="0.94", lw=0, zorder=0)
+    for xb in H_SEG:
+        axA.axvline(xb, color="0.72", ls=":", lw=0.8, zorder=1)
+    for x0, x1, lab in ((0.0, H_SEG[0], "急缩"), (H_SEG[0], H_SEG[1], "缓缩"),
+                        (H_SEG[1], 72.0, "平台")):
+        axA.text(0.5 * (x0 + x1), 2.055, lab, ha="center", va="center",
+                 fontsize=7.5, color="0.35")
+    axA.plot(h, R_data, color=ROLE["data"], lw=1.6, zorder=5, label="附件2 实测")
+    axA.plot(h, R_pred, color=ROLE["model"], ls="--", lw=1.3,
+             label=f"重标定力学模型（RMSE={rmse:.3f} mm）")
+    axA.plot(h_ideal, R_ideal, color=ROLE["ref"], ls=":", lw=1.2, label="失水理想基线")
+    axA.axhline(plat_data, color=ROLE["data"], ls=":", lw=0.9)
+    axA.axhline(plat_pred, color=ROLE["model"], ls=":", lw=0.9)
+    axA.text(70.0, 1.075, f"平台：实测 {plat_data:.3f} / 模型 {plat_pred:.4f} cm",
+             ha="right", va="bottom", fontsize=7.5, color="0.30")
+    axA.set_xlim(0, 72)
+    axA.set_ylim(1.05, 2.10)
     axA.set_xlabel("烘干时间 $t$ / h")
     axA.set_ylabel("药材半径 $R$ / cm")
     style_axis(axA, grid="y")
+    axA.legend(loc="center right", handlelength=1.8, labelspacing=0.26)
     panel(axA, "(a)", dx=-0.135)
-    tile(axA, "$R(t)$：情景 vs 附件2")
+    tile(axA, "重标定拟合：力学模型 vs 附件2")
 
-    # ---- (b) 气相体积份额 g(t) ----
-    for pic, col, ls in ((1.0, ROLE["model"], "-"), (15.0, ROLE["ref"], "--")):
-        axB.plot(runs[pic]["t"] / 3600.0, runs[pic]["gmin"], color=col, ls=ls, lw=1.3,
-                 label=f"$\\Pi_c$={pic:g}（$g_{{min}}$）")
-    axB.axhline(PHI_G0, color=ROLE["guide"], ls=":", lw=1.0)
-    axB.text(58.0, PHI_G0 + 0.012, f"初始孔隙率 {PHI_G0:.3f}", ha="right", va="bottom",
-             fontsize=7.5, color="0.30")
+    # ---- (b) 残差 ----
+    axB.axvspan(0.0, H_SEG[1], color="0.94", lw=0, zorder=0)
+    axB.axvline(H_SEG[1], color="0.72", ls=":", lw=0.8, zorder=1)
     axB.axhline(0.0, color="0.25", lw=0.8)
-    axB.text(1.5, 0.660, "全程 $g\\geq0$", ha="left", va="top", fontsize=7.5, color="0.30")
-    axB.set_xlim(0, 60)
-    axB.set_ylim(0.0, 0.72)
-    axB.set_xlabel("烘干时间 $t$ / h")
-    axB.set_ylabel("气相体积份额 $g$")
-    style_axis(axB, grid="y")
-    axB.legend(loc="lower right", handlelength=1.5, labelspacing=0.24)
-    panel(axB, "(b)", dx=-0.16)
-    tile(axB, "孔隙非负：$g(t)$ 轨迹")
-
-    # ---- (c) 结皮诊断：表面 De(t) ----
-    axC.axvspan(12.0, 18.0, color="0.93", lw=0, zorder=0)
-    axC.text(15.0, 2.2e1, "分裂步长抖动\n（见报告 §4）", ha="center", va="bottom",
-             fontsize=7.5, color="0.45")
-    for pic, col, ls in ((1.0, ROLE["model"], "-"), (15.0, ROLE["ref"], "--")):
-        axC.semilogy(runs[pic]["t"] / 3600.0, runs[pic]["DeS"], color=col, ls=ls, lw=1.3,
-                     label=f"$\\Pi_c$={pic:g}")
-    axC.axhline(1.0, color=ROLE["guide"], ls="--", lw=1.0)
-    axC.text(1.0, 1.35, "$De$=1", ha="left", va="bottom", fontsize=7.5, color="0.30")
-    axC.annotate("$De\\gg1$：表层承力/结皮\n（材料松弛响应）",
-                 xy=(30.0, 2.0e4), xytext=(0.06, 0.93), textcoords="axes fraction",
+    axB.plot(h, res, color=ROLE["model"], lw=1.1, zorder=5)
+    axB.annotate("前 21 h：系统性欠缩\n（峰值 +1.24 mm）",
+                 xy=(1.5, 1.235), xytext=(0.30, 0.96), textcoords="axes fraction",
                  fontsize=7.5, ha="left", va="top", color="0.15",
                  arrowprops=dict(arrowstyle="-|>", lw=0.7, color="0.35"),
                  bbox=dict(boxstyle="round,pad=0.26", fc="white", ec="0.80", lw=0.5, alpha=0.95))
-    axC.set_xlim(0, 60)
-    axC.set_ylim(1e0, 3e7)
-    axC.set_xlabel("烘干时间 $t$ / h")
-    axC.set_ylabel("表面 Deborah 数 $De$")
-    style_axis(axC, grid="y")
-    axC.legend(loc="lower right", handlelength=1.5, labelspacing=0.24)
-    panel(axC, "(c)", dx=-0.16)
-    tile(axC, "结皮诊断：表面 $De(t)$")
+    axB.text(1.5, -1.42, f"段 RMSE {seg[0]:.3f}/{seg[1]:.3f}/{seg[2]:.3f} mm",
+             ha="left", va="center", fontsize=7.5, color="0.30")
+    axB.text(70.0, 0.15, "平台段贴合", ha="right", va="bottom", fontsize=7.5,
+             color="0.30")
+    axB.set_xlim(0, 72)
+    axB.set_ylim(-1.75, 1.75)
+    axB.set_xlabel("烘干时间 $t$ / h")
+    axB.set_ylabel("残差 $R_{pred}-R_{data}$ / mm")
+    style_axis(axB, grid="y")
+    panel(axB, "(b)", dx=-0.18)
+    tile(axB, "残差：结构性欠缩")
 
-    print(f"  [F10] 情景现算 {time.perf_counter()-t0:.0f} s；"
-          + "；".join(f"Π_c={k:g}: RMSE {v['rmse']:.3f} / $R_{{end}}$ {v['rend']:.3f} / "
-                      f"$g_{{min}}$ {v['gmin']:.3f} / $De_{{max}}$ {v['demax']:.2e}"
-                      for k, v in chk.items())
-          + f"；φ_g0={PHI_G0}（口径常数）；中央情景场读自 mechA_fields_central.npz",
+    # ---- (c) 平台机制：吸力饱和（非 De≫1 结皮冻结）----
+    S = np.linspace(0.04, 1.0, 240)
+    P = MechParams(rho_d0=1.0, rho_s=1468.0, p_star=p_star, ret_model="power",
+                   q_pow=beta)
+    pbar = np.asarray(P.pbar_c(S), float) / p_star        # 归一化平均吸力
+    cap = 1.0 / ((1.0 - beta) * (2.0 - beta))            # 解析上限（有限）
+    axC.plot(S, pbar, color=ROLE["model"], lw=1.4)
+    axC.axhline(cap, color=ROLE["guide"], ls="--", lw=1.0)
+    axC.text(0.03, cap + 0.012, f"有限上限 {cap:.3f} $p^*$", ha="left", va="bottom",
+             fontsize=7.5, color="0.30")
+    axC.text(0.97, 0.775, "$S\\to0$：$\\bar p_c$ 吸力饱和\n$\\Rightarrow$ 末端 $J$ 有限 → 平台",
+             ha="right", va="top", fontsize=7.5, color="0.15")
+    axC.text(0.03, 0.03, f"$De\\approx{De_hi:.1e}\\ll1$\n非结皮冻结", ha="left",
+             va="bottom", fontsize=7.5, color="0.15",
+             bbox=dict(boxstyle="round,pad=0.26", fc="white", ec="0.80", lw=0.5, alpha=0.95))
+    axC.set_xlim(0, 1.03)
+    axC.set_xticks([0.0, 0.5, 1.0])
+    axC.set_ylim(0, 0.78)
+    axC.set_xlabel("饱和度 $S$")
+    axC.set_ylabel(r"归一化平均吸力 $\bar p_c/p^*$")
+    style_axis(axC, grid="y")
+    panel(axC, "(c)", dx=-0.20)
+    tile(axC, "平台机制：吸力饱和平衡")
+
+    print(f"  [F10] 重标定幂律拟合：RMSE={rmse:.4f} mm（急缩 {seg[0]:.3f} / 缓缩 "
+          f"{seg[1]:.3f} / 平台 {seg[2]:.3f}）；平台 pred {plat_pred:.4f} vs data "
+          f"{plat_data:.3f} cm；max|残差|={r_max:.3f} mm；β={beta:.4f}、p*={p_star:.4g}；"
+          f"De={De_lo:.2e}–{De_hi:.2e}（≪1，非结皮冻结）；g_min={g_min:.4f}＞0；"
+          f"吸力上限 $1/[(1-β)(2-β)]p^*$={cap:.4f} $p^*$；t_f=51.1667 h（报告 §3）",
           flush=True)
     save(fig, "fig10_力学升级")
 
