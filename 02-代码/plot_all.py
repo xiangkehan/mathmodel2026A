@@ -38,7 +38,7 @@
   TH = 0.15 kg/kg  —— 题目问题 3 原文“水分浓度应低于 0.15 kg/kg”
   fig6 H_SEG / C_GLASS / RHO_SK —— 附件2 三段分界、玻璃化含水率、骨架密度，
     来源 03-数据/内生收缩分析.md §0–§1（图内所有半径/含水率/交叉点数字仍从数据读出）
-  其余全部数字（含 35 h 冻结点、严格下界）均从上述数据文件读出，脚本内不誊写结果。
+  其余全部数字（含 35 h 冻结点、参考时标）均从上述数据文件读出，脚本内不誊写结果。
 """
 from __future__ import annotations
 
@@ -56,6 +56,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm          # fig13 的对数色阶
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch, Rectangle
 from matplotlib.text import Text
@@ -98,7 +99,7 @@ ROLE = dict(
     analytic=OI["green"],   # 解析解
     aux1=OI["orange"],      # 次要物理量：温度 T
     aux2=OI["magenta"],     # 次要物理量：环境水分 C_env；fig6 第三机制（成孔）
-    guide=OI["grey"],       # 阈值/严格下界/平台线（一律虚线/点线）
+    guide=OI["grey"],       # 阈值/参考时标/平台线（一律虚线/点线）
 )
 
 # ---- 出版级样式基线 ----
@@ -561,12 +562,15 @@ def fig1():
                  fontsize=7.5, ha="left", va="top",
                  arrowprops=dict(arrowstyle="-|>", lw=0.7, color="0.35"),
                  bbox=dict(boxstyle="round,pad=0.26", fc="white", ec="0.80", lw=0.5, alpha=0.95))
+    # 引线原指向 (72 h, 1.198 cm)，箭头正好落在右侧“平台 1.198 cm”文字上：
+    # 改为指向 72 h 竖虚线（在平台文字上方），引线不再穿字。
     axR.annotate(f"附件2 截止 {h2[-1]:.0f} h：\n{R[-1]:.3f} cm 平台延拓",
-                 xy=(h2[-1], R[-1]), xytext=(0.40, 0.33), textcoords="axes fraction",
+                 xy=(h2[-1], R[-1] + 0.10), xytext=(0.40, 0.33), textcoords="axes fraction",
                  fontsize=7.5, ha="left", va="top",
                  arrowprops=dict(arrowstyle="-|>", lw=0.7, color="0.35"),
                  bbox=dict(boxstyle="round,pad=0.26", fc="white", ec="0.80", lw=0.5, alpha=0.95))
-    axR.text(98.0, R[-1] + 0.014, f"平台 {R[-1]:.3f} cm", ha="right", va="bottom",
+    # 抬高 0.010 cm：原位置文字底边贴住 1.198 cm 平台虚线
+    axR.text(98.0, R[-1] + 0.024, f"平台 {R[-1]:.3f} cm", ha="right", va="bottom",
              fontsize=7.5, color="0.30")
     axR.set_xlim(0, x_end)
     axR.set_ylim(1.16, 2.10)
@@ -639,7 +643,10 @@ def fig2():
     style_axis(axB, grid="y")
     axB.legend(loc="lower left", handlelength=1.6, labelspacing=0.24)
     panel(axB, "(b)", dx=-0.115)
-    tile(axB, "偏差：全程低于 $3.2\\times10^{-6}$ ℃")
+    # 面板画的是 5 个特征位置的**逐点**偏差（插值对拍），与论文正文引用的
+    # “N=320 全域单元中心最大偏差 5.9e-7 ℃”（v1_convergence.csv 末行）不是同一口径，
+    # 标题必须写明“特征位置”，避免与论文的全局验证数字混淆。标题受 ≤28 字符上限约束。
+    tile(axB, "特征位置逐点偏差：$<3.2\\times10^{-6}$")
 
     print(f"  [F2] 解析对拍：对拍点最大偏差 {dev_max:.3e} ℃（{len(pts)} 点，四位小数分辨率 "
           f"{res:.0e} ℃，低 {res/dev_max:.0f} 倍）；1 s 网格 1800 点全程：中心 max "
@@ -805,8 +812,10 @@ def fig4(no_cache=False):
     ax.text(1.0, TH + 0.05, f"${TH}$", fontsize=7.5, color="0.30")
     for lb, col in ((lb3, ROLE["model2"]), (lb4, ROLE["model"])):
         ax.axvline(lb, color=col, ls=":", lw=1.2)
-    for lb, col, txt, yf, yt in ((lb3, ROLE["model2"], f"问题3 严格下界 {lb3:.2f} h", 0.86, 1.95),
-                                 (lb4, ROLE["model"], f"问题4 严格下界 {lb4:.2f} h", 0.77, 1.42)):
+    # 口径修正（与论文一致）：lb3/lb4 是“常系数/瞬时首模”两种近似下的参考时标，
+    # 不是严格误差下界——图上与 stdout 一律写“参考时标”。
+    for lb, col, txt, yf, yt in ((lb3, ROLE["model2"], f"问题3 参考时标 {lb3:.2f} h", 0.86, 1.95),
+                                 (lb4, ROLE["model"], f"问题4 参考时标 {lb4:.2f} h", 0.77, 1.42)):
         ax.annotate(txt, xy=(lb, yt), xytext=(0.185, yf), textcoords="axes fraction",
                     fontsize=7.5, color=col, ha="left", va="top",
                     arrowprops=dict(arrowstyle="-|>", lw=0.7, color=col))
@@ -847,8 +856,8 @@ def fig4(no_cache=False):
           f"② 附4+内生 $R(t)$ = {tf4:.2f} h；③ 问题3（附3+固定 $R$） = {tf3:.2f} h；"
           f"收缩效应 ①−② = {tf_ctl_csv-tf4:.2f} h（{(tf_ctl_csv-tf4)/tf_ctl_csv*100:.1f}%）；"
           f"净效应 ③−② = {tf3-tf4:.2f} h（{(tf3-tf4)/tf3*100:.1f}%）；"
-          f"严格下界余量 {tf3-lb3:.2f} / {tf4-lb4:.2f} h", flush=True)
-    assert tf4 > lb4 and tf3 > lb3, "主解低于严格下界"
+          f"参考时标余量 {tf3-lb3:.2f} / {tf4-lb4:.2f} h", flush=True)
+    assert tf4 > lb4 and tf3 > lb3, "主解低于参考时标"
     save(fig, "fig4_达标穿越")
 
 
@@ -943,8 +952,8 @@ def fig5():
                  va="center", ha="left", fontsize=7.5)
     div = 0.5 * (ys[len(grp1) - 1] + ys[len(grp1)])
     ax1.axhline(div, color="0.65", lw=0.8, ls="--", zorder=1)
-    ax1.text(103.0, ys[0] + 0.60, "敏感性因素", fontsize=7.5, color="0.25",
-             ha="right", va="bottom")
+    # 面板标题已写“敏感性：各因素 $\Delta t_f$”，每根条的因素名在 y 轴标签上，
+    # 故 2026-09-12 删去上方那处孤悬的“敏感性因素”文字（无对应图例图元，属残句）。
     ax1.text(103.0, div, "问题4 效应拆分（基准：内生主解）", fontsize=7.5,
              color="0.25", ha="right", va="center")
     ce = [b for b in grp1 if b[0].startswith("C_e")][0]
@@ -992,7 +1001,7 @@ def fig6():
     数字全部读自 03-数据/endogenous_shrinkage.csv（附件2 时刻网格上的各闭合 R_pred）；
     缺列时按 03-数据/内生收缩分析.md 的口径回退到 附件2.xlsx / q4_main_steps.npz。
     """
-    from solver_q1 import C0, R0        # 初始干基含水率 kg/kg / 初始半径 m（题目物性）
+    from solver_q1 import C0, R0        # 初始干基含水率 kg/kg / 初始半径 m（题目材料参数）
 
     head, rows = read_csv_rows("endogenous_shrinkage.csv")
     t_s = np.array([float(r["t_s"]) for r in rows])
@@ -1078,10 +1087,12 @@ def fig6():
     axL.plot(h, R_pore, color=ROLE["aux2"], ls="-.", lw=1.2,
              label="闭合5 成孔演化")
     axL.axhline(R_plat, color=ROLE["guide"], ls=":", lw=1.0)
-    # 三条闭合的平台值与相对附件2 平台（1.198 cm）的偏差，直标在各自平台一端
+    # 三条闭合的平台值与相对附件2 平台（1.198 cm）的偏差，直标在各自平台一端。
+    # 闭合3'（1.1693）与闭合1 理想基线（1.1226）在尾段只差 0.047 cm，放不下两行文字：
+    # 该标签改到理想基线**下方**的空带（y 轴下限 1.03 给足余量），避免压住橙色虚线与坐标轴。
     for val, col, y0 in ((R_surf[-1], ROLE["analytic"], 0.010),
                          (R_pore[-1], ROLE["aux2"], 0.008),
-                         (R_crust[-1], ROLE["model"], -0.032)):
+                         (R_crust[-1], ROLE["model"], -0.058)):
         dev = (val - R_plat) / R_plat * 100.0
         axL.text(h[-1] - 1.0, val + y0, f"{val:.3f}（{dev:+.0f}%）" if abs(dev) >= 10
                  else f"{val:.3f}（{dev:+.1f}%）",
@@ -1094,13 +1105,15 @@ def fig6():
                  fontsize=7.5, ha="left", va="top",
                  arrowprops=dict(arrowstyle="-|>", lw=0.7, color="0.35"),
                  bbox=dict(boxstyle="round,pad=0.26", fc="white", ec="0.80", lw=0.5, alpha=0.95))
+    # “后期成孔 → 平台”：原位置（0.06, 0.22）在三条闭合曲线的平台上，白框被曲线穿过；
+    # 移到曲线上方、绿色平台标注左侧的空带（x 22–48 h，y 1.45–1.52 cm），引线仍指向成孔平台。
     axL.annotate("后期成孔 → 平台",
-                 xy=(30.0, R_pore[-1] + 0.002), xytext=(0.06, 0.22),
+                 xy=(30.0, R_pore[-1] + 0.002), xytext=(0.30, 0.40),
                  textcoords="axes fraction", fontsize=7.5, ha="left", va="top",
                  arrowprops=dict(arrowstyle="-|>", lw=0.7, color="0.35"),
                  bbox=dict(boxstyle="round,pad=0.26", fc="white", ec="0.80", lw=0.5, alpha=0.95))
     axL.set_xlim(0, h[-1] + 2.0)
-    axL.set_ylim(1.05, 2.22)
+    axL.set_ylim(1.03, 2.22)
     axL.set_xlabel("烘干时间 $t$ / h")
     axL.set_ylabel("药材半径 $R$ / cm")
     style_axis(axL, grid="y")
@@ -1281,12 +1294,18 @@ def fig8():
              (2 * len(h) // 3, int(np.sum(~np.isnan(C[2 * len(h) // 3]))) - 1)]
 
     fig = plt.figure(figsize=(W_DOUBLE, 3.8))
-    rects = [(0.030, 0.250, 0.395, 0.610), (0.545, 0.250, 0.395, 0.610)]
+    # 竖排 colorbar 一律移到 3D 面板**之外**（(a) 左外侧、(b) 右外侧）：原来用 inset 压在曲面上，
+    # (a) 的色条遮住了 $s\approx0.8$–0.95 的一段高含水率面；且 (b) 的 z 轴标签与 (a) 的色条标签
+    # 只隔约 40 px，容易被读成一个标签。两个 3D 轴相应收窄（0.395→0.320）并各自内缩，
+    # 让出左/右外侧的色条位；色条用 ax.inset_axes 以负的/大于 1 的 x 定到 3D 轴之外（比例＝轴宽）。
+    rects = [(0.155, 0.245, 0.320, 0.615), (0.588, 0.245, 0.320, 0.615)]
+    cbar_rects = [(-0.403, 0.211, 0.047, 0.561), (1.025, 0.211, 0.047, 0.561)]
     specs = ((SS, ZC, "viridis", c_lo, c_hi, "(a)", "水分场：拉格朗日坐标 $s$",
               "水分浓度 $C$ / (kg/kg)", "$s = r/R(t)$"),
              (RR, ZT, "coolwarm", t_lo, t_hi, "(b)", "温度场：固定网格 $r$",
               "温度 $T$ / ℃", "$r$ / cm"))
-    for (X, Z, cmap_name, lo, hi, tag, title, cbl, xlab), rect in zip(specs, rects):
+    for (X, Z, cmap_name, lo, hi, tag, title, cbl, xlab), rect, cbrect in zip(
+            specs, rects, cbar_rects):
         ax = fig.add_axes(rect, projection="3d")
         cmap = plt.get_cmap(cmap_name).copy()
         cmap.set_bad(alpha=0.0)           # 域外（NaN）不画
@@ -1295,8 +1314,12 @@ def fig8():
                         ccount=Z.shape[0], linewidth=0, antialiased=False, shade=False)
         if tag == "(a)":
             ax.plot(np.ones_like(hh), hh, Cs[ti], color=ROLE["data"], lw=1.4, zorder=10)
-            ax.text(0.86, 40.0, float(np.nanmax(Cs)) * 0.62, " 表面轨迹", fontsize=7.5,
-                    color=ROLE["data"], zorder=20)
+            # “表面轨迹”标签贴住该曲线的中段（原位置 t=40 h、z≈1.6，离曲线 z≈0.05 太远）；
+            # z 由数据读出并抬高 0.30 kg/kg，白底让深色文字在深紫色场面上也可读。
+            t_lab = 24.0
+            ax.text(0.78, t_lab, float(np.interp(t_lab, h, Cs)) + 0.30, " 表面轨迹",
+                    fontsize=7.5, color=ROLE["data"], zorder=20,
+                    bbox=dict(boxstyle="round,pad=0.18", fc="white", ec="none", alpha=0.80))
             ax.set_xticks([0.0, 0.25, 0.5, 0.75, 1.0])
         else:
             ax.plot(R_t[ti], hh, zs=lo, zdir="z", color=ROLE["data"], lw=1.2, zorder=10)
@@ -1309,12 +1332,15 @@ def fig8():
         ax.set_zticks([np.round(v, 2) for v in np.linspace(lo, hi, 3)])
         ax.set_xlabel(xlab, labelpad=3)
         ax.set_ylabel("$t$ / h", labelpad=3)
-        ax.set_zlabel(cbl.split(" / ")[0] + " / " + cbl.split(" / ")[1], labelpad=2)
+        # (a) 不再画 z 轴标签：轴外左侧的 colorbar 已写着同一串“水分浓度 $C$ / (kg/kg)”，
+        # 再写一遍两者只隔约 0.1 in，会被读成一个标签（正是本次要消除的问题）；原布局里该
+        # 轴标签本就被画到画布之外（不可见），去掉无损。z 轴刻度数字照旧保留。
+        if tag == "(b)":
+            ax.set_zlabel(cbl.split(" / ")[0] + " / " + cbl.split(" / ")[1], labelpad=2)
         ax.tick_params(labelsize=7.5, pad=1)
         ax.view_init(elev=20, azim=-118 if tag == "(a)" else -122)
         ax.set_box_aspect((1.0, 1.5, 0.95), zoom=1.26)
-        # 竖排 colorbar 放在面板内右侧（外部放会与相邻 3D 面板的 z 轴标签/刻度相撞）
-        cax = ax.inset_axes([0.885, 0.20, 0.042, 0.58])
+        cax = ax.inset_axes(cbrect)      # (a) 在轴外左侧、(b) 在轴外右侧，均不压曲面
         cb = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap), cax=cax,
                           orientation="vertical")
         cb.set_label(cbl, fontsize=7.5)
@@ -1491,7 +1517,8 @@ def fig10():
                  fontsize=7.5, ha="left", va="top", color="0.15",
                  arrowprops=dict(arrowstyle="-|>", lw=0.7, color="0.35"),
                  bbox=dict(boxstyle="round,pad=0.26", fc="white", ec="0.80", lw=0.5, alpha=0.95))
-    axB.text(1.5, -1.42, f"段 RMSE {seg[0]:.3f}/{seg[1]:.3f}/{seg[2]:.3f} mm",
+    # 三段 RMSE：原文字起点贴住 y 轴（x=1.5），首字与轴脊线并排；改为完整说法并右移
+    axB.text(4.0, -1.42, f"三段 RMSE {seg[0]:.3f}/{seg[1]:.3f}/{seg[2]:.3f} mm",
              ha="left", va="center", fontsize=7.5, color="0.30")
     axB.text(70.0, 0.15, "平台段贴合", ha="right", va="bottom", fontsize=7.5,
              color="0.30")
@@ -1540,7 +1567,7 @@ def fig10():
 
 # ====================== F11 扩散系数与特征时间尺度 ======================
 def fig11():
-    """(a) 三族附录物性的 D(C) 曲线（y 对数轴）＋ D4/D3 比值区间；(b) 特征时间尺度（log 横轴）。
+    """(a) 三族附录材料参数的 D(C) 曲线（y 对数轴）＋ D4/D3 比值区间；(b) 特征时间尺度（log 横轴）。
 
     数据源：D 公式直接取自 02-代码/solver_q1.py（附录2）、solver_q23.py（附录3）、
     solver_q4.py（附录4），并落盘 03-数据/D_of_C.csv 供复现与论文图注引用；
@@ -1553,7 +1580,7 @@ def fig11():
     C = np.linspace(0.15, 2.55, 241)
     T_ref, T_hot = float(T0_K), 323.315
     cols = np.column_stack([C, D2(C), D3(C, T_ref), D4(C, T_ref), D3(C, T_hot), D4(C, T_hot)])
-    hdr = ["# D_of_C.csv —— 三族附录物性扩散系数（fig11(a) 的唯一数据源）",
+    hdr = ["# D_of_C.csv —— 三族附录材料参数扩散系数（fig11(a) 的唯一数据源）",
            "# 公式取自 02-代码/solver_q1.py（附录2）、solver_q23.py（附录3）、solver_q4.py（附录4）",
            "# 附录2 D=7e-9*exp(-0.89/C)（只依赖 C）；附录3 D=2.4e-3*exp(-0.45/C)*exp(-3850/T)；",
            "# 附录4 D=4.2e-4*exp(-0.30/C)*exp(-3850/T)；T 开尔文、C 干基含水率 kg/kg",
@@ -1593,7 +1620,7 @@ def fig11():
     note(axA, f"$D_4/D_3=0.175\\,e^{{0.15/C}}$：\n1/{1/r_at_c0:.2f}（$C$=2.55）"
               f" → 1/{1/r_at_cmin:.2f}（$C$=0.15）", xy=(0.985, 0.985), fs=7.5)
     panel(axA, "(a)", dx=-0.115)
-    tile(axA, "扩散系数：三族附录物性")
+    tile(axA, "扩散系数：三族附录材料参数")
 
     # ---- (b) 特征时间尺度（log 横轴）----
     items = [("膜界参考（附 3）", k3["t_film_h"], 0),
@@ -1662,8 +1689,13 @@ def fig12():
     ax.set_ylim(0, float(pos_cm[-1]))
     style_axis(ax, grid="none")
     ax.plot([0, 0], [0, 2], color="0.30", lw=0.9, ls=":")
-    ax.text(60, 1.72, "中心 $r$=0（最慢）", fontsize=7.5, color="0.15")
-    ax.text(1500, 0.12, "表面 $r$=2 cm（最先升温）", fontsize=7.5, color="0.15", ha="right")
+    # 纵轴 r 自下而上 0→2 cm：中心（r=0）标注必须在**下**、表面（r=2 cm）必须在**上**。
+    # 位置还须避开 8 条等温线标签（全部落在 r≈1.55–1.9 的顶部条带）：
+    # 中心标注放底部浅色带（r≈0.13，深色字可读），表面标注放顶部条带下方（r≈1.45）。
+    ax.text(1150, 0.13, "中心 $r$=0（最慢）", fontsize=7.5, color="0.15", ha="center",
+            va="center")
+    ax.text(1700, 1.45, "表面 $r$=2 cm（最先升温）", fontsize=7.5, color="0.15", ha="right",
+            va="center")
     panel(ax, "(a)", dx=-0.075)
     tile(ax, "温度场：0.5 h 内近准稳态")
 
@@ -1691,12 +1723,25 @@ def fig13():
 
     fig, ax = plt.subplots(figsize=(W_DOUBLE, 3.4))
     fig.subplots_adjust(left=0.088, right=0.848, top=0.862, bottom=0.178)
-    cf = ax.contourf(t_h[ti], pos_cm, Z, levels=np.linspace(0.0, 2.6, 53), cmap=TIME_CMAP)
-    cs = ax.contour(t_h[ti], pos_cm, Z, levels=[TH], colors="white", linewidths=1.0)
+    # 对数色阶（2026-09-12 改）：$C$ 全域 0.0525–2.55 跨近两个数量级，线性色阶下 <0.3 全挤在
+    # 最暗的约 12% 里，干壳（$C$<0.15）与湿核（0.15≤$C$<0.2）颜色完全相同，只能靠白色等值线分辨。
+    # 改用 LogNorm 后 0.15 落在色阶约 28% 处，壳核在颜色上即可区分。CB_LO/CB_HI 只作色阶端点
+    # （左端取在数据极小值 0.0525 之下、右端取在初值 2.55 之上），不参与任何数据运算。
+    CB_LO, CB_HI = 0.05, 2.6
+    cf = ax.contourf(t_h[ti], pos_cm, Z, levels=np.geomspace(CB_LO, CB_HI, 40),
+                     cmap=TIME_CMAP, norm=LogNorm(vmin=CB_LO, vmax=CB_HI))
+    # 达标阈值等值线/标签/壳核标注一并保留（阈值仍是题目口径的 0.15 kg/kg）
+    cs = ax.contour(t_h[ti], pos_cm, Z, levels=[TH], colors="white", linewidths=1.8)
     ax.clabel(cs, fmt=f"{TH:.2f}", fontsize=7.5, colors="white")
     cax = fig.add_axes([0.864, 0.178, 0.020, 0.684])
     cb = fig.colorbar(cf, cax=cax)
     cb.set_label("干基含水率 $C$ / (kg/kg)", fontsize=7.5)
+    # 对数色阶下 matplotlib 的默认刻度是 10 的整数次幂且用科学计数标签（$1.12453\times10^{-1}$），
+    # 故显式给刻度：0.1 / 阈值 0.15 / 0.5 / 1.0 / 2.0（对数间距下相邻两刻度 ≥17 pt，不叠字）。
+    # 文字格式固定 1 位小数、仅阈值写 0.15，避免 matplotlib 因 0.15 把其余刻度一并变成 2 位小数。
+    cb.set_ticks([0.1, TH, 0.5, 1.0, 2.0])
+    cb.ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(
+        lambda v, _: f"{TH:.2f}" if abs(v - TH) < 1e-9 else f"{v:.1f}"))
     cb.ax.tick_params(labelsize=7.5)
     ax.axvline(tf_h, color=ROLE["ref"], lw=1.0, ls="--")
     ax.text(tf_h - 1.2, 0.10, f"$t_f$={tf_h:.2f} h", fontsize=7.5, color=ROLE["ref"],
@@ -1722,7 +1767,7 @@ def fig13():
 
 # ====================== F14 表面通量与表面扩散系数 ======================
 def fig14():
-    """表面水分通量与表面扩散系数（问题 1，附录 2 物性）。
+    """表面水分通量与表面扩散系数（问题 1，附录 2 材料参数）。
 
     (a) 表面水通量 j_w(t)；(b) 表面扩散系数 D_s(t)（与 (a) 共享时间轴，不用双 Y 轴）；
     (c) D_s 随表面含水率 C_s 的变化。
@@ -1813,9 +1858,11 @@ def fig15():
     _, cons23 = read_csv_rows("conservation23.csv")
     _, cons4 = read_csv_rows("q4_conservation.csv")
 
-    fig, (axA, axB, axC) = plt.subplots(1, 3, figsize=(W_DOUBLE, 3.4),
+    fig, (axA, axB, axC) = plt.subplots(1, 3, figsize=(W_DOUBLE, 3.7),
                                         gridspec_kw=dict(width_ratios=[1.0, 1.0, 1.06]))
-    fig.subplots_adjust(left=0.083, right=0.985, top=0.865, bottom=0.185, wspace=0.34)
+    # 图高 3.4→3.7 in、top 0.865→0.930、bottom 0.185→0.350：(c) 的图例移到面板外、x 轴标签
+    # 下方，需要纵向让位；top 同时抬高以补回面板高度，三个面板不被压扁（轴内高 2.15 in vs 原 2.31 in）。
+    fig.subplots_adjust(left=0.083, right=0.985, top=0.930, bottom=0.350, wspace=0.34)
     mk = ["o", "s", "^"]
     for k in range(errs.shape[1]):
         col = TIME_CMAP(0.12 + 0.72 * k / max(errs.shape[1] - 1, 1))
@@ -1865,15 +1912,27 @@ def fig15():
     for xs, ys_, lab, col, m in series:
         axC.loglog(xs, ys_, color=col, marker=m, ms=3.2, lw=1.1, label=lab)
     axC.axhline(1e-10, color=ROLE["guide"], ls=":", lw=0.9)
-    axC.text(0.975, 0.86, "机器精度量级 $10^{-10}$", transform=axC.transAxes, ha="right",
-             fontsize=7.5, color="0.35")
+    # “机器精度量级 10^-10”原在右上角（0.975, 0.86），被水量（问题2·3）蓝线穿过：
+    # 曲线与 1e-10 点线之间只剩约 1.5 个字号的高度，故移到左上角该空带内，并加白底。
+    axC.text(0.015, 0.975, "机器精度量级 $10^{-10}$", transform=axC.transAxes, ha="left",
+             va="top", fontsize=7.5, color="0.35", zorder=6,
+             bbox=dict(boxstyle="round,pad=0.18", fc="white", ec="none", alpha=0.88))
     axC.set_xticks([40, 80, 160])
     axC.set_xticklabels(["40", "80", "160"])
     axC.xaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
     axC.set_xlabel("网格数 $N$")
     axC.set_ylabel("相对残差（各网格最大值）")
+    # 下界由 1.8e-14 放宽到 1.5e-15（仅多一个空 decade，不改任何数据/数字）：给下面那条
+    # 能量（问题4）粉线留出完整的 3 个网格点与 1e-10 参考线之间的空带。
+    axC.set_ylim(1.5e-15, 1.5e-10)
     style_axis(axC, grid="both")
-    axC.legend(loc="lower left", handlelength=1.4, labelspacing=0.22, fontsize=7.5)
+    # 图例移到 (c) 面板**外**、x 轴标签下方（2026-09-12 改）：原 5 行单列无框图例宽约面板的
+    # 73%，放轴内左/右下都会盖住能量（问题4）粉线的第 1 个点（N=40，2.68e-14），缩字号又低于
+    # 7.5 pt 的审计下限；移到轴外后三个点（N=40/80/160）全部可见。轴外不再需要白色衬底，
+    # 改回全局默认 frameon=False。列数只能取 1：这 5 个中文标签排 2 列时图例宽约 2.4 in，
+    # 越过图右边界会被裁掉（ncol=2 实测右端超出画布约 0.32 in）。
+    axC.legend(loc="upper center", bbox_to_anchor=(0.5, -0.20), ncol=1,
+               handlelength=1.4, labelspacing=0.18, borderpad=0.3, fontsize=7.5)
     panel(axC, "(c)", dx=-0.165)
     tile(axC, "守恒：残差随网格加密")
     for _ax in (axA, axB, axC):
@@ -1913,9 +1972,12 @@ def fig16():
     axA.plot(h, Cs, color=ROLE["data"], lw=1.2, ls="--", label="表面 $s$=1")
     axA.axhline(TH, color=ROLE["guide"], ls=":", lw=1.1)
     axA.axvline(tf_h, color=ROLE["ref"], ls="--", lw=1.0)
-    axA.text(tf_h + 0.7, 2.42, f"$t_f$={tf_h:.4f} h", fontsize=7.5, color=ROLE["ref"],
-             va="top", ha="left")
-    axA.text(0.6, TH + 0.10, f"阈值 {TH} kg/kg", fontsize=7.5, color="0.30", ha="left")
+    # t_f 标注改到竖线左侧（右侧是图例样例所在区，原位置字尾被图例的线样压住）
+    axA.text(tf_h - 0.8, 2.42, f"$t_f$={tf_h:.4f} h", fontsize=7.5, color=ROLE["ref"],
+             va="top", ha="right")
+    # 阈值标注移到曲线之外的右侧空段（中心曲线止于 t_f=50.54 h）：原位置被表面曲线穿过
+    axA.text(72.0, TH + 0.075, f"阈值 {TH} kg/kg", fontsize=7.5, color="0.30", ha="right",
+             va="bottom")
     axA.set_ylabel("干基含水率 $C$ / (kg/kg)")
     axA.set_ylim(0.0, 2.75)
     axA.set_xlim(0, 72)
@@ -1966,7 +2028,10 @@ def fig17():
     axA.plot([0], [0], marker="+", ms=7, mew=1.2, color=ROLE["data"])
     axA.annotate("", xy=(2.0, 0), xytext=(0, 0),
                  arrowprops=dict(arrowstyle="-|>", lw=1.0, color=ROLE["data"]))
-    axA.text(1.05, 0.12, "$R_0$=2 cm", fontsize=8)
+    # R_0 尺寸标注：原位置（1.05, 0.12）左对齐、右端伸到 x≈2.3，被圆周轮廓穿过；
+    # 改为在直径箭头正上方居中（居中的文字两端离圆周都留有余量）。
+    axA.text(1.00, 0.28, "$R_0$=2 cm", fontsize=7.5, ha="center", va="bottom",
+             color=ROLE["data"])
     for ang, lab in ((90, "$h$, $h_m$"), (0, "$h$, $h_m$"), (270, "$h$, $h_m$"), (180, "$h$, $h_m$")):
         a = np.deg2rad(ang)
         axA.annotate("", xy=(3.05 * np.cos(a), 3.05 * np.sin(a)),
