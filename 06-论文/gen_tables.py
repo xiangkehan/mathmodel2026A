@@ -81,7 +81,7 @@ def paper_tables():
         for t in times:
             vals = [r[3] for r in rs if r[1] == t]
             body.append([t.split("=")[1]] + vals)
-        cap = caption + "。数字由 result 工作簿同一数据源抽取，保留四位小数。"
+        cap = caption + "。数字由 result 工作簿同一数据源抽取，保留四位小数"
         out.append("\\begin{table}[htbp]\n\\centering\n\\caption{%s}\n\\label{tab:%s}\n%s\n\\end{table}"
                    % (cap, tab, tabular([[tlabel] + POS5], body)))
     # 表 5
@@ -96,14 +96,14 @@ def paper_tables():
         label = t.split("=")[1] if "=" in t else t
         body5.append([label] + vals)
     out.append("\\begin{table}[htbp]\n\\centering\n\\caption{问题~3 药材烘干过程的水分浓度（kg/kg）。"
-               "结束行时刻为未舍入判定值 57.1799~h；表中 0.1500 为舍入显示，判定位用未舍入值。}\n"
+               "结束行时刻为未舍入判定值 57.1799~h；表中 0.1500 为舍入显示，判定位用未舍入值}\n"
                "\\label{tab:表5}\n%s\n\\end{table}" % tabular([["时间/h"] + POS5], body5))
     # 表 6（问题 4）：直接从内生交付工作簿 result4.xlsx 取数（论文表 11 与工作簿逐格一致）
     body6, tf6_h = table6_from_result4()
     out.append("\\begin{table}[htbp]\n\\centering\n"
                "\\caption{问题~4 药材烘干过程的水分浓度（kg/kg）。“—”表示该时刻该固定位置"
                "已在药材表面之外（半径收缩，留空不外推）。"
-               f"结束行时刻为未舍入判定值 {tf6_h:.4f}~h（内生几何主解）。}}"
+               f"结束行时刻为未舍入判定值 {tf6_h:.4f}~h（内生几何主解）}}"
                "\n\\label{tab:表6}\n%s\n\\end{table}"
                % tabular([["时间/h"] + COLS6], body6))
     return "\n\n".join(out)

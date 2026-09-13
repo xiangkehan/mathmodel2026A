@@ -7,17 +7,27 @@
 \usepackage{caption}
 \captionsetup{font=small,labelsep=quad}
 \usepackage{listings}
+\renewcommand{\lstlistingname}{代码}
 \usepackage{float}
-\lstset{basicstyle=\ttfamily\small,breaklines=true,columns=flexible,frame=single,numbers=left,numberstyle=\tiny}
+% 行号落入框内、框线与版心对齐：xleftmargin 让出行号位，framexleftmargin 把框左线移回版心左界，
+% numbersep 收窄行号与代码的间距；三者需配套，改其一都会使框线偏离版心
+\lstset{basicstyle=\ttfamily\small,breaklines=true,columns=flexible,frame=single,numbers=left,numberstyle=\tiny,
+        xleftmargin=15pt,framexleftmargin=11.6pt,xrightmargin=3.4pt,numbersep=5pt}
 \usepackage[colorlinks=true,linkcolor=black,citecolor=black,urlcolor=black]{hyperref}
 \graphicspath{{../05-图表/}}
 \numberwithin{equation}{section}
 \renewcommand{\arraystretch}{1.25}
 
+% 页码：页脚居中、阿拉伯数字连续编号，全篇无页眉（校内格式规范第三条）
+\pagestyle{plain}
+
+% 行距：单倍行距（校内通知四.3：其余内容小 4 号宋体、单倍行距）
+\linespread{1.0}
+
 % 中文数字章节编号：一、二、…；二级标题为“章.节”式
 \ctexset{
   section = {name = {,、}, number = \chinese{section},
-             format = \centering\heiti\zihao{4}\bfseries},
+             format = \centering\songti\bfseries\zihao{4}},
   subsection = {number = \arabic{section}.\arabic{subsection},
                 format = \songti\bfseries\zihao{-4}},
   subsubsection = {number = \arabic{section}.\arabic{subsection}.\arabic{subsubsection},
@@ -54,41 +64,26 @@
 \maketitle
 
 \begin{abstract}
-\noindent\textbf{问题与挑战}：中药材烘干以圆柱形药柱为对象，长 25 cm、半径 2 cm，
-初温 28 ${}^\circ$C、初始干基含水率 2.55 kg/kg，要求给出预热段与全过程的温度场与
-水分浓度场、固定几何下的达标时间，以及计入收缩后的达标时间。三套附录材料参数须按
-问题分别使用，不得把三套参数调和、平均或取为常数；扩散系数 $D$ 的非线性强，
-尾段最多缩小 16.8 倍；环境数据只有 4 h，远短于干燥历时；
-半径数据在约 21 h 后进入近平台段。
 
-\smallskip\noindent\textbf{方法}：四问共用\textbf{同一套热湿耦合方程，差别只在取法}：
-由干固体守恒、水分守恒与能量守恒导出，以干物质标签 $q$ 为材料坐标，写成质量坐标
-形式，收缩几何下形式不变，且无伪对流项；求解用守恒型有限体积格式，表面取半单元
-串联阻力，时间推进用后向欧拉加局部外推，非线性项用 Picard--Newton 交替迭代，
-步长自适应；并以题给参数构造三个无量纲判据 $Le$、$Bi_m$、$Bi_h$ 与参考时标，
-用于简化与验证。
+\noindent 中药材干燥是产地加工的关键环节：水分偏高易霉变，干燥不足或过度都会影响品质。本文以长 25 cm、半径 2 cm 的圆柱药柱为对象，初始干基含水率 2.55 kg/kg、初温 28
+${}^\circ$C，研究预热段与全过程的温度场与水分浓度场演变，并确定固定几何与计入失水收缩两种情形下的达标时间，为烘干时长的控制提供依据。
 
-\smallskip\noindent\textbf{关键结果}：问题 1 温度场与解析解逐点比较，最大偏差为
-$5.9\times10^{-7}\,^{\circ}$C；问题 3 达标时间 $\bm{t_f=57.1799}$ \textbf{h}，
-大于常系数参考时标 15.70 h，Richardson 外推给出 57.1636 h；问题 4 达标时间
-$\bm{t_f=50.5369}$ \textbf{h}，大于瞬时首模近似参考 19.02 h，其几何由内生收缩模型
-预测，附件 2 实测半径作交叉验证，偏差 $-0.56\%$。机制归因：附录 4 与附录 3 的扩散
-系数比随含水率由 $1/5.39$ 变化到 $1/2.10$；附录材料参数组合效应使固定半径烘干时间
-放大 $2.26$ 倍，相当于 $+78.57$ h，半径收缩使 $R^2$ 降低 64\%，加速 $60.9\%$，
-两者相抵后问题 4 反而快 $11.6\%$；敏感性分析显示边界汇取值 $C_e$ 是唯一能改变
-结论量级的因素，其影响为 $+22.6$ h。
+\noindent 针对问题 1（0--1800 s 预热段），含水率变化很小、热湿近似解耦，材料参数按附录 2 取常数，热方程退化为线性圆柱 Robin 问题；由此写出圆柱 Robin 特征展开与时变环境 Duhamel
+卷积的解析谱解，再与守恒型有限体积数值解逐点对照，最大偏差$5.9\times10^{-7}\,^{\circ}$C，1800 s 末全场温差收敛到约 $1\,^{\circ}$C。解析解不含离散误差，两者一致说明所报温度场是模型的解，空
+间离散、边界处理与时间步进没有引入可观误差。
 
-\smallskip\noindent\textbf{验证与创新}：问题 1 的热场与解析谱解逐点一致；此外还做了尾段结构诊断、
-参考时标判据、守恒恒等式、退化测试与网格收敛检验。
-这些检验用来确认所报的场值与达标时间出自该模型、量级与参数一致，而不是数值假象。
-已检验因素的累计偏移量级约 1.71 h，其中数值误差、环境情景与取法敏感性三类
-分别报告，模型结构差异单列。内生收缩模型把三项有物理含义的机制写成半经验关系式，含 5 个
-标定参数，均由附件 2 的实测半径标定，与附件 2 全部形态的 RMSE 为 0.047 mm。耦合主解在
-满 72 h 的真实轨迹上全程 RMSE \textbf{0.088 mm}，其中 0--达标段 0.065 mm、
-达标--72 h 段 0.127 mm。力学驱动扩展模型 RMSE 0.522 mm、$t_f=51.1667$ h，
-其偏差来自模型结构决定的上限与材料参数缺失，两者已按数据说明。
+\noindent 针对问题 2，材料参数按附录 3 取用，保留温度与水分浓度的双向耦合，用质量坐标下的守恒型有限体积格式求解：表面取半单元串联阻力，时间推进用后向
+欧拉加局部外推，非线性项用 Picard--Newton 交替迭代，步长自适应。判据$Bi_m\in[1.1805,47.7480]$ 表明内部扩散主导，把含水率作集总或平均处理会把达标时间低估 46.03 h（$-80\%$），与题目要求的空间分布不
+符；因此保留全场分布，给出 72 h 内各时刻的温度与水分浓度场。
 
-\smallskip\noindent\textbf{关键词：} 热湿耦合\quad 质量坐标\quad 守恒有限体积\quad 无量纲判据\quad 模型检验\quad 中药材干燥
+\noindent 针对问题 3，在问题 2 的模型上加入达标判据（各处水分浓度首次低于0.15 kg/kg 干基），由数值扫描确认中心为最慢点，按穿越区间及其右侧安全端点报告达标时刻：$\bm{t_f=57.1799}$ h（Richardson
+外推 57.1636 h）。该值远大于常系数参考时标15.70 h，量级与参数一致；其中对边界汇取值最敏感，$C_e=0.1366$ 时增大 22.6 h，已检验因素的累计偏移量级约 1.71 h。
+
+\noindent 针对问题 4，几何按仿射收缩 $r=R(t)\sqrt q$ 演化，方程与固定域同形；为确定$R(t)$，把失水收缩、毛细-膨压塌陷、结皮-成孔停滞三项机制写成半经验关系式，由湿度场逐步预测半
+径，预测不使用附件 2 的数据，附件 2 实测半径仅作交叉验证（RMSE 0.047 mm、偏差 $-0.56\%$）。得 $\bm{t_f=50.5369}$ h，比问题 3 快 $11.6\%$：附录 4 的材料参数使固定半径下的烘干时间放大 $2.26$ 倍（$+78.57$ h），半径收缩（$R^2$ 降
+64\%）则加速$60.9\%$，两者相抵后反而更快；耦合主解在满 72 h 真实轨迹上的全程 RMSE 0.088 mm。
+
+\smallskip\noindent\textbf{关键词}：热湿耦合\enspace 质量坐标\enspace 守恒有限体积\enspace 无量纲判据\enspace 模型检验\enspace 中药材干燥
 \end{abstract}
 
 \section{问题重述}
@@ -103,14 +98,16 @@ $\bm{t_f=50.5369}$ \textbf{h}，大于瞬时首模近似参考 19.02 h，其几�
 
 \subsection{问题提出}
 四个问题依次为：
-\begin{enumerate}
-  \item[\textbf{问题 1}] 预热平衡阶段（0--1800 s）药材内温度与水分浓度的时空分布，
-        材料参数取附录 2，按题目所给的表格格式列出；
-  \item[\textbf{问题 2}] 整个烘干过程的温度与水分浓度分布情况，材料参数取附录 3；
-  \item[\textbf{问题 3}] 固定几何下首次全部达标的烘干时间，结果按表 5 的格式给出；
-  \item[\textbf{问题 4}] 计入失水收缩后的达标时间，外半径取附件 2、材料参数取附录 4，
-        结果按表 6 的格式给出。
-\end{enumerate}
+
+\noindent \textbf{问题 1}：预热平衡阶段（0--1800 s）药材内温度与水分浓度的时空分布，
+材料参数取附录 2，按题目所给的表格格式列出；
+
+\noindent \textbf{问题 2}：整个烘干过程的温度与水分浓度分布情况，材料参数取附录 3；
+
+\noindent \textbf{问题 3}：固定几何下首次全部达标的烘干时间，结果按表 5 的格式给出；
+
+\noindent \textbf{问题 4}：计入失水收缩后的达标时间，外半径取附件 2、材料参数取附录 4，
+结果按表 6 的格式给出。
 
 四个结果分别写入 result1.xlsx 至 result4.xlsx。
 
@@ -126,7 +123,7 @@ $\bm{t_f=50.5369}$ \textbf{h}，大于瞬时首模近似参考 19.02 h，其几�
 \caption{几何模型与边界条件。长 25 cm、半径 2 cm 的圆柱药柱，
 初始 $U_0=2.55$ kg/kg、$T_0=301.15$ K；柱面与环境 $T_a(t)$、$C_{\mathrm{env}}(t)$
 经对流换热 $h=25$ W/(m$^2\cdot$K) 与表面水分交换 $h_m=8\times10^{-7}$ m/s 耦合；
-轴心对称、端面忽略（一维径向假设，见第三章）。}
+轴心对称、端面忽略（一维径向假设，见第三章）}
 \label{fig:几何示意}
 \end{figure}
 
@@ -150,7 +147,7 @@ $D$–$C$ 半对数曲线——附录 2 只与 $C$ 有关、不含 $T$，附录 
 尾段 $C\to0.15$ 时 $D$ 缩小 16.8 倍，该倍率按附录 3 的材料参数公式算出；
 (b) 各参考时标：常系数首模参考 15.7021 h、膜界 11.1720 h、问题 4 瞬时首模时间积分
 19.016 h、固定 $R_0$ 版 37.61 h、$R_{\min}$ 常值版 15.95 h——达标时间的
-两个主值 57.18 h 与 50.54 h 均大于上述各时标。}
+两个主值 57.18 h 与 50.54 h 均大于上述各时标}
 \label{fig:扩散系数}
 \end{figure}
 
@@ -186,7 +183,7 @@ $D$–$C$ 半对数曲线——附录 2 只与 $C$ 有关、不含 $T$，附录 
 \includefig[\linewidth]{fig1_输入数据.pdf}{输入数据}
 \caption{输入数据：附件 1 给出 0--4 h、每 60 s 一步的烘房温度与空气水分浓度，
 4 h 后按末值保持外推；附件 2 给出 0--72 h 的外半径，呈急缩、缓缩、平台三段结构，
-约 21 h 起进入近平台段。}
+约 21 h 起进入近平台段}
 \label{fig:输入数据}
 \end{figure}
 
@@ -311,18 +308,18 @@ $8D_{\mathrm{eff}}(U_s-U_N)/(R^2\Delta q)=2h_m(C_{\mathrm{env}}-U_s)/R$ 联立�
 \includefig[\linewidth]{fig12_温度场时空云图.pdf}{温度场时空云图}
 \caption{温度场时空演化：云图以时间为横轴、径向位置为纵轴，
 表面在约 600 s 内贴近环境、中心滞后明显，1800 s 末全场温差收敛到
-约 $1\,^{\circ}$C 量级。}
+约 $1\,^{\circ}$C 量级}
 \label{fig:温度云图}
 \end{figure}
 
 \begin{figure}[htbp]
 \centering
 \includefig[\linewidth]{fig14_表面通量与表面扩散系数.pdf}{表面通量与表面扩散系数}
-\caption{表面通量与表面扩散系数。(a) 表面水分
+\caption{表面通量与表面扩散系数：(a) 表面水分
 通量 $j_s$ 与表面扩散系数 $D_s=D(C_s)$ 的时程：通量初期最大而后衰减，
 $D_s$ 随表面变干持续下降；(b) $D_s$ 与 $C_s$ 的对应关系，本过程的 $C_s$
 只落在高含水端，故曲线平缓；图~\ref{fig:扩散系数}(a) 给出
-$D\propto\mathrm e^{-0.89/C}$ 在全量程上的强非线性。}
+$D\propto\mathrm e^{-0.89/C}$ 在全量程上的强非线性}
 \label{fig:表面通量}
 \end{figure}
 
@@ -393,7 +390,7 @@ B 缓缩 3.5--21 h、C 近平台段约 21 h 起，它不是单一失水收缩曲
 与约 16 h 滞后交叉；不作参数拟合的“理想收缩+玻璃化冻结”半经验关系式
 已能由结构给出减速与平台，其中按平均含水率判断结皮的那一条给出平台 1.169 cm、
 偏差 $-2.4\%$、冻结时刻偏差 $+12\%$；
-早期塌陷与后期成孔对应两组机制。数据源：问题 4 主解湿度场与附件 2 实测半径。}
+早期塌陷与后期成孔对应两组机制。数据源：问题 4 主解湿度场与附件 2 实测半径}
 \label{fig:收缩机制}
 \end{figure}
 
@@ -435,7 +432,7 @@ $R_{\mathrm{obs}}\to(\bar U,C_s)_{\text{主解}}\to\text{标定}\to R_{\mathrm{p
 叠加而成，含 5 个标定参数与 2 个不参与拟合的量，它复现了附件 2 的全程形态：
 RMSE 0.047 mm，约为量化分辨率的 5 倍；滞后交叉 17.0 h，数据约 16 h；
 平台 1.1969 cm，数据 1.198 cm；三段形态全部复现。
-残差子图显示偏差始终在 $\pm0.16$ mm 以内，这是以实测几何单向驱动得到的拟合指标。}
+残差子图显示偏差始终在 $\pm0.16$ mm 以内，这是以实测几何单向驱动得到的拟合指标}
 \label{fig:内生贴合}
 \end{figure}
 
@@ -465,10 +462,10 @@ N 由 80 增至 160 时变化 0.0007 h，可视为空间误差的量级，见第
 \begin{figure}[htbp]
 \centering
 \includefig[0.86\linewidth]{fig16_中心表面演化与半径收缩.pdf}{中心/表面演化与半径收缩}
-\caption{中心/表面含水率演化与半径收缩。(a) 中心与表面含水率曲线，
+\caption{中心/表面含水率演化与半径收缩：(a) 中心与表面含水率曲线，
 配 0.15 kg/kg 阈值虚线与 $t_f=50.5369$ h 达标竖线：表面先到干态、中心最后达标；
 (b) 内生半径 $R(t)$ 在 50.5 h 进入近平台，60--72 h 仅再降 0.031 mm，
-模型已积分至 72 h，曲线止于 $t_f=50.54$ h。}
+模型已积分至 72 h，曲线止于 $t_f=50.54$ h}
 \label{fig:中心表面}
 \end{figure}
 
@@ -484,7 +481,7 @@ N 由 80 增至 160 时变化 0.0007 h，可视为空间误差的量级，见第
 六个盘的时间间隔是 5/10/10/15/10 h，而半径降幅集中在前两盘：
 $R$ 在前 5 h 由 2.00 降到 1.42 cm，占 0.81 cm 总降幅的 72\%，
 20 h 后即进入平台，因此在等间隔取样、等宽排版下视觉变化前快后慢；
-中心为最慢点，$t_f=50.5369$ h 时中心首次低于 0.15 kg/kg。}
+中心为最慢点，$t_f=50.5369$ h 时中心首次低于 0.15 kg/kg}
 \label{fig:截面}
 \end{figure}
 
@@ -531,7 +528,7 @@ $0.0084/0.0023/0.0013\,^{\circ}$C，并随加密单调下降；牛顿步全部�
 
 \begin{table}[htbp]
 \centering
-\caption{力学模型的退化检验（末列为实测判定）。}
+\caption{力学模型的退化检验（末列为实测判定）}
 \label{tab:力学退化}
 \small
 \begin{tabular}{p{0.26\linewidth}p{0.26\linewidth}p{0.31\linewidth}l}
@@ -576,7 +573,7 @@ De $\approx1.0\times10^{-3}\ll1$，说明平台并非黏弹冻结所致，见图
 (c) 面板给出该平台机制：归一化平均吸力 $\bar p_c/p^*$ 随饱和度 $S$ 下降而单调上升，
 并在 $S\to0$ 时趋于有限上限 $p^*/[(1-\beta)(2-\beta)]$，
 末端收缩进入平台即来自这一吸力饱和平衡；
-气相体积份额全程非负，$g_{\min}=0.1446$，见表~\ref{tab:力学退化}。}
+气相体积份额全程非负，$g_{\min}=0.1446$，见表~\ref{tab:力学退化}}
 \label{fig:力学升级}
 \end{figure}
 
@@ -595,13 +592,15 @@ $\beta=0.02/0.05/0.10/0.15/0.85$ 时 $J_{\mathrm{end}}=0.368/0.356/0.336/0.319/0
 更高的精度，这一问题留作后续工作。\textbf{参数缺失}方面，真实保水曲线
 $p_c(S,T)$ 是其中影响最大的一项，此外还有膨压类体积驱动、干态模量增长与结皮硬化、
 骨架模量与松弛谱、初始湿质量与真实密度；体积核算只给出 $\rho_{d0}\le256$ kg/m$^3$
-的上限。\textbf{结论}：当前的精度仍不如半经验主线，其指标为 0.047/0.088 mm。
+的上限。
+
+\textbf{结论}：当前的精度仍不如半经验主线，其指标为 0.047/0.088 mm。
 在真实保水曲线与力学实测数据到位之前，本文的力学模型还不能复现附件 2 的实测过程；
 力学驱动的推广是后续可继续沿用的方向，届时半经验收缩关系式可作为其低维验证基准。
 
 \section{模型检验}
 
-\subsection{无量纲判据（Le、Bi\_m、Bi\_h）}
+\subsection{无量纲判据（$Le$、$Bi_m$、$Bi_h$）}
 沿矩形扫描域 $C\in[0.15,2.55]$、$T\in\{301.15,\,323.315\}$ K、$R=R_0$，逐点
 按附录公式计算 $\alpha=k/(\rho c_p)$，扫描区间即表~\ref{tab:判据族} 所列区间。
 干燥末段表面 $U<0.15$ 的局部状态超出该扫描域，扫描未包含。
@@ -609,7 +608,7 @@ $p_c(S,T)$ 是其中影响最大的一项，此外还有膨压类体积驱动、
 
 \begin{table}[htbp]
 \centering
-\caption{无量纲判据表：定义、扫描区间、阈值语义、简化决策与回代偏差。}
+\caption{无量纲判据表：定义、扫描区间、阈值语义、简化决策与回代偏差}
 \label{tab:判据族}
 \small
 \begin{tabular}{llp{0.16\linewidth}p{0.16\linewidth}p{0.23\linewidth}l}
@@ -672,7 +671,7 @@ $D\le D_{\max}$ 本身不构成逐点解比较；(iii) 收缩版积分瞬时第�
 
 \begin{table}[H]
 \centering
-\caption{验证汇总表（V1--V6）：手段、数学结构、实测数字、能得到的结论与尚未检验的误差源。}
+\caption{验证汇总表（V1--V6）：手段、数学结构、实测数字、能得到的结论与尚未检验的误差源}
 \label{tab:验证}
 \footnotesize
 \begin{tabular}{p{0.30\linewidth}p{0.30\linewidth}p{0.32\linewidth}}
@@ -717,16 +716,16 @@ V6 网格/时间 Richardson 收敛 &
 $10^{-6}\,^{\circ}$C、全程低于 $3.2\times10^{-6}\,^{\circ}$C，虚线为四位小数输出的
 分辨率上限；径向网格加密的二阶收敛见表~\ref{tab:验证} 与
 图~\ref{fig:收敛守恒}(a)；全域单元中心在 N=320 的最大偏差为
-$5.9\times10^{-7}\,^{\circ}$C。}
+$5.9\times10^{-7}\,^{\circ}$C}
 \label{fig:解析验证}
 \end{figure}
 
 \begin{figure}[htbp]
 \centering
 \includefig[\linewidth]{fig15_收敛与守恒检验.pdf}{收敛与守恒检验}
-\caption{收敛与守恒检验。(a) 温度场误差随网格加密按二阶下降（V1、V6）；
+\caption{收敛与守恒检验：(a) 温度场误差随网格加密按二阶下降（V1、V6）；
 (b) $t_f$ 随网格加密的收敛序列；
-(c) 残差随网格加密：水量与显热离散平衡残差维持在 $10^{-11}$ 量级附近（V4）。}
+(c) 残差随网格加密：水量与显热离散平衡残差维持在 $10^{-11}$ 量级附近（V4）}
 \label{fig:收敛守恒}
 \end{figure}
 
@@ -744,13 +743,13 @@ $5.9\times10^{-7}\,^{\circ}$C。}
 \caption{达标时刻：$\max_qU(q,t)$ 全程曲线与
 0.15 阈值线；问题 3 主解 $t_f=57.1799$ h、问题 4 主解 $t_f=50.5369$ h（内生几何）
 与附录 4 固定半径对照 129.1047 h 三条曲线对比，横轴标出参考时标
-15.70 h 与 19.02 h（常系数与瞬时首模近似）。}
+15.70 h 与 19.02 h（常系数与瞬时首模近似）}
 \label{fig:穿越}
 \end{figure}
 
 \subsection{敏感性分析}
 每组都实测 $\Delta t_f$，见表~\ref{tab:敏感性} 与图~\ref{fig:敏感}。
-边界汇取值（$C_e$）是本题\emph{唯一能改变结论量级的因素}：改用解吸等温线
+边界汇取值（$C_e$）是本题\textbf{唯一能改变结论量级的因素}：改用解吸等温线
 $C_e=0.1366$ 后 $t_f$ 增大 $22.6$ h（$39.6\%$）。主结果一律采用本文设定的取法，
 超出题设的修正只进入敏感性分析并明确标注，其偏移不计入误差分量汇总（7.2 节）。
 半径插值两档实测仅差 $0.0022$ h（附件 2 平滑，两插值几乎重合），说明这一取法
@@ -758,7 +757,7 @@ $C_e=0.1366$ 后 $t_f$ 增大 $22.6$ h（$39.6\%$）。主结果一律采用本�
 
 \begin{table}[htbp]
 \centering
-\caption{敏感性汇总表（问题 3 取法、N=80 对照取法；问题 4 拆分沿用主取法）。}
+\caption{敏感性汇总表（问题 3 取法、N=80 对照取法；问题 4 拆分沿用主取法）}
 \label{tab:敏感性}
 \small
 \begin{tabular}{lll}
@@ -784,7 +783,7 @@ $C_e=0.1366$（山药解吸支，超出题设的修正） & 79.8270 & $+22.6261$
 \includefig[\linewidth]{fig5_敏感性.pdf}{敏感性}
 \caption{敏感性条形图：各因素的 $\Delta t_f$ 画成横向条形，其中边界汇取值
 $C_e=0.1366$（超出题设的修正）的偏移 $+22.63$ h 最大，环境外推 $+1.62$ h 次之，
-半径插值仅 $+0.002$ h。}
+半径插值仅 $+0.002$ h}
 \label{fig:敏感}
 \end{figure}
 
@@ -792,7 +791,7 @@ $C_e=0.1366$（超出题设的修正）的偏移 $+22.63$ h 最大，环境外�
 
 \begin{table}[htbp]
 \centering
-\caption{误差分量汇总表：按数值误差、环境情景与取法敏感性三类分别报告。}
+\caption{误差分量汇总表：按数值误差、环境情景与取法敏感性三类分别报告}
 \label{tab:预算}
 \small
 \begin{tabular}{lp{0.50\linewidth}ll}
@@ -815,6 +814,7 @@ $C_e=0.1366$（超出题设的修正）的偏移 $+22.63$ h 最大，环境外�
 \textbf{模型结构差异}：潜热情景的 $+5.3889$ h 与边界汇取值 $C_e=0.1366$ 的
 $+22.6261$ h 单列，不计入上表的合成。前者是 5.3 节在情景假设集合下
 无潜热基准的 $t_f$ 偏差量级，后者是超出题设的修正，只作敏感性分析。
+
 \textbf{尚未纳入误差分量汇总的因素}：边界条件的全部可能形式（吸附与水活度
 关系缺少数据）、内生收缩标定参数（$k_p$ 的 95\% CI 相对半宽 24\%）、
 内部非仿射变形（5.5 节的模型结构分析）。
@@ -885,7 +885,7 @@ Marcel Dekker, New York, 1986.
 
 \appendix
 \ctexset{section = {name = {附录 ,：}, number = \Alph{section},
-           format = \centering\heiti\zihao{4}\bfseries}}
+           format = \centering\songti\bfseries\zihao{4}}}
 
 \section{移动域方程的推导要点}
 本文的出发点同时包含干物质守恒与水分守恒。设 $\rho_d$ 为单位总体积中的
@@ -935,7 +935,7 @@ $R(t)$ & 附件 2（0--259200 s，1800 s 步） & PCHIP 保形插值 & 问题 4 
 几何 & $L_0=0.25$ m，$R_0=0.02$ m & 一维径向（$L_0/R_0=12.5$） & 问题 1--4 \\
 初值 & $U_0=2.55$ kg/kg，$\varTheta_0=301.15$ K & 全域均匀 & 问题 1--4 \\
 \midrule
-\multicolumn{4}{l}{\textit{本文设定的假设}} \\
+\multicolumn{4}{l}{\textbf{本文设定的假设}} \\
 湿边界处理 & $C_{\mathrm{env}}$ 直接作 Robin 驱动势 & 等效边界条件（第三章假设 2） & 问题 1--4 \\
 环境外推 & $t>14400$ s 末值保持 & 本文设定（敏感性见 7.1 节） & 问题 2--4 \\
 $h,h_m$ 延用 & 附录 2 值延用到问题 2--4 & 本文设定的参数延用假设 & 问题 2--4 \\
@@ -949,7 +949,7 @@ $h,h_m$ 延用 & 附录 2 值延用到问题 2--4 & 本文设定的参数延用�
 \caption{内生收缩模型参数表与物理合理性}
 \label{tab:收缩参数}
 \small
-\begin{tabular}{p{0.22\linewidth}lp{0.28\linewidth}p{0.24\linewidth}}
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.22\linewidth}lp{0.28\linewidth}p{0.24\linewidth}}
 \toprule
 参数 & 数值 & 来源 & 物理合理性核对 \\
 \midrule
@@ -968,7 +968,7 @@ $\rho_{sk}$（骨架密度，kg/m$^3$） & 1468 & 生物质骨架密度典型范
 \caption{量纲检查表}
 \label{tab:量纲}
 \small
-\begin{tabular}{lll}
+\begin{tabular}{llp{0.68\linewidth}}
 \toprule
 符号 & 单位 & 核对要点 \\
 \midrule
@@ -999,6 +999,7 @@ $\rho_{sk}=1468$ kg/m$^3$ 取生物质骨架密度典型范围值，两者不参
 $\varepsilon_p$ 3.8\%、$k_p$ 23.9\%，分布有偏斜或多峰迹象；
 变初值 $\times$ 变损失函数的最大参数偏差 $\le0.98\%$；
 各机制在其主导区段单独拟合与全曲线拟合的幅度参数差 $<2\%$，独立识别需完整耦合标定。
+
 \textbf{参数的第二路线检验}：$\varepsilon_c=11.1\%$ 落在毛细压
 $2\gamma/r_{\mathrm{pore}}$ 对基体模量的理论应变区间 $[1.4\%,28.8\%]$；
 $\varepsilon_p$ 对应的末期孔隙率 30.9\% 与由“平台半径和质量守恒”独立推出的
@@ -1030,6 +1031,57 @@ numpy/scipy/pandas/openpyxl。
 全部结果文件确定性写出（固定归档时间戳），连续两次运行 result1--4 的 md5
 完全一致（result1 \texttt{22eb47f7…}、result2 \texttt{12cde4e8…}、
 result3 \texttt{fbe982ff…}、result4 \texttt{80c73431…}）。
+
+\subsection*{支撑材料文件列表}
+支撑材料打包为 \texttt{论文.zip}（\texttt{论文/} 顶层目录，62 个文件、6 个目录，
+解压后约 4.8 MB、压缩后约 3.6 MB）；下列清单与压缩包内容逐项一致。
+赛题提供的原始数据（附件 1、附件 2，仓库 \texttt{01-题目/原始文件/}）按规范豁免，不在包内。
+
+% 文件清单里文件名很长、内部几乎没有断行点，整块改用左对齐，避免连续等宽文件名撑出 Overfull；
+% \fsep = 「、」+ 零惩罚断点，再给每两个文件名之间留一个换行机会
+{\raggedright
+\newcommand{\fsep}{、\allowbreak}
+\begin{itemize}
+  \item \textbf{论文/}（2）：\texttt{00-审计说明.md}\fsep \texttt{main.pdf}；
+  \item \textbf{论文/论文源码/}（8）：\texttt{main.tex}\fsep \texttt{tables.tex}\fsep
+        \texttt{写作说明.md}\fsep \texttt{gen\_tables.py}\fsep \texttt{check\_abstract.py}\fsep
+        \texttt{check\_numbers.py}\fsep \texttt{check\_refs.py}\fsep \texttt{check\_table6.py}；
+  \item \textbf{论文/代码/}（19）：\texttt{analytic\_heat.py}\fsep
+        \texttt{endogenous\_calibrated.py}\fsep \texttt{latent\_scenario.py}\fsep
+        \texttt{mech\_shrinkage.py}\fsep \texttt{plot\_all.py}\fsep \texttt{run\_all.py}\fsep
+        \texttt{run\_m4.py}\fsep \texttt{run\_q1.py}\fsep \texttt{run\_q23.py}\fsep
+        \texttt{run\_q4.py}\fsep \texttt{solver\_q1.py}\fsep \texttt{solver\_q23.py}\fsep
+        \texttt{solver\_q4.py}\fsep \texttt{run\_mech\_A.py}\fsep
+        \texttt{run\_mech\_mainline.py}\fsep \texttt{run\_mech\_refit.py}\fsep
+        \texttt{run\_q4\_endo.py}\fsep \texttt{run\_q4\_endo\_fields.py}\fsep
+        \texttt{交付口径-核对.py}；
+  \item \textbf{论文/图/}（17）：\texttt{fig1\_输入数据.pdf}\fsep
+        \texttt{fig2\_问题1解析验证.pdf}\fsep \texttt{fig3\_温湿剖面.pdf}\fsep
+        \texttt{fig4\_达标穿越.pdf}\fsep \texttt{fig5\_敏感性.pdf}\fsep
+        \texttt{fig6\_收缩机制分析.pdf}\fsep \texttt{fig7\_内生收缩贴合.pdf}\fsep
+        \texttt{fig9\_截面演化.pdf}\fsep \texttt{fig10\_力学升级.pdf}\fsep
+        \texttt{fig11\_扩散系数与时间尺度.pdf}\fsep \texttt{fig12\_温度场时空云图.pdf}\fsep
+        \texttt{fig13\_水分场时空云图.pdf}\fsep \texttt{fig14\_表面通量与表面扩散系数.pdf}\fsep
+        \texttt{fig15\_收敛与守恒检验.pdf}\fsep \texttt{fig16\_中心表面演化与半径收缩.pdf}\fsep
+        \texttt{fig17\_几何模型与边界条件示意图.pdf}\fsep
+        \texttt{\_fig4\_对照\_附4固定R\_maxU.csv}；
+  \item \textbf{论文/数据证据/}（12）：\texttt{结果总账.csv}\fsep \texttt{paper\_tables.csv}\fsep
+        \texttt{交付口径.md}\fsep \texttt{q4\_endo\_eval.csv}\fsep \texttt{q4\_split.csv}\fsep
+        \texttt{sensitivity.csv}\fsep \texttt{error\_budget.csv}\fsep
+        \texttt{latent\_scenario.csv}\fsep \texttt{D\_of\_C.csv}\fsep \texttt{surface\_flux.csv}\fsep
+        \texttt{力学升级\_修复重标定.md}\fsep \texttt{内生收缩模型.md}；
+  \item \textbf{论文/结果文件/}（4）：\texttt{result1.xlsx}\fsep \texttt{result2\_降采样.xlsx}\fsep
+        \texttt{result3.xlsx}\fsep \texttt{result4.xlsx}。
+\end{itemize}}
+
+% 结论段较长且含不易断行的等宽文件名，单给一点 emergency 伸展量即可避免 Overfull
+{\emergencystretch=2em
+其中 \texttt{result1}、\texttt{result3}、\texttt{result4} 为原表原样入包；
+\texttt{result2} 为\textbf{降采样版}：原表 \texttt{result2.xlsx} 为 1 s 时间网格
+（温度与水分浓度 2 张表 × 209447 数据行 × 22 列，27.9 MB），超过支撑材料 20 MB 上限，
+故按每 1800 s（30 min）一帧抽取、每帧保留完整径向剖面（21 个节点），
+并加留首帧 1 s 与末帧 209447 s（$t_f+3600$ s 余量），共 118 帧；
+表名、列头、列序与原表一致。其余中间工作簿与张量（\texttt{.npz}）、位图、日志仍不入包。}
 \clearpage
 核心求解步骤的程序摘录（守恒步进与表面重建，注释从略）如下。
 
@@ -1056,12 +1108,31 @@ def coupled_step(U, T, dt, Ta, Cenv, dq, newton):
 \section*{AI 工具使用声明}
 \markboth{AI 工具使用声明}{AI 工具使用声明}
 
-本文在竞赛过程中使用了 \textbf{KimiCode} 与 \textbf{DeepSeek} 两个 AI 工具，用途限于以下三项，均为辅助性使用：AI 给出的代码、图形与推导结论均由作者复核、复算后才写入论文，论文的建模思路、结果与结论由作者负责。
+本参赛队就本次竞赛中 AI 工具的使用情况声明如下：
 
-\begin{itemize}
-  \item \textbf{程序测试}：辅助编写与调试数值求解代码，以及守恒恒等式、网格与时间收敛、退化测试等检验脚本。涉及第 5 章（模型建立与求解）、第 6 章（模型检验）与附录 D。
-  \item \textbf{绘图}：辅助整理数据并生成全文插图。涉及第 1--7 章的插图，图形内容与图中数值标注由作者核对。
-  \item \textbf{数学公式推理验证}：辅助核对控制方程与移动域推导、解析谱解、量纲与极限退化。涉及第 5.1 节、附录 A 与第 6.1--6.2 节。
-\end{itemize}
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}cp{0.15\linewidth}p{0.33\linewidth}p{0.22\linewidth}c@{}}
+\toprule
+序号 & AI 工具名称 & 使用场景/用途 & 涉及论文章节 & 使用程度 \\
+\midrule
+1 & KimiCode、DeepSeek & 程序测试：辅助编写与调试数值求解代码，以及守恒恒等式、网格与时间收敛、退化测试等检验脚本 & 第五章（模型建立与求解）、第六章（模型检验）、附录 D & 中度 \\
+2 & KimiCode、DeepSeek & 绘图：辅助整理数据并生成全文插图 & 第一章至第七章的插图 & 中度 \\
+3 & KimiCode、DeepSeek & 数学公式推理验证：辅助核对控制方程与移动域推导、解析谱解、量纲与极限退化 & 第 5.1 节、附录 A、第 6.1--6.2 节 & 轻度 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{使用程度说明：}
+
+轻度：仅用于语法检查、文字润色、代码片段解释、公式验证等辅助性工作，不影响论文核心内容与结论。
+
+中度：用于辅助代码编写、文献整理、思路拓展等，核心建模与分析仍由队员独立完成。
+
+本队承诺以上声明内容全部属实，论文核心建模方法、算法设计、结果分析与结论均为队员独立完成，不存在 AI 工具直接生成核心内容或代写代做的情况。如有不实，愿承担全部责任并接受相应处理。
+
+\vspace{1em}
+\noindent 全体队员签字：\underline{\hspace{4cm}} \hfill 日期：\underline{\hspace{3cm}}
 
 \end{document}
