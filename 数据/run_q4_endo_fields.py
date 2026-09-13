@@ -15,7 +15,7 @@ import openpyxl
 
 HERE = Path(__file__).resolve().parent
 A_DIR = HERE.parent
-sys.path.insert(0, str(A_DIR / "02-代码"))
+sys.path.insert(0, str(A_DIR / "代码"))
 
 from run_q4_endo import solve_endogenous
 from run_q23 import read_env, make_env
@@ -99,7 +99,7 @@ def main():
     print(f"[场导出] q4_endo_fields.npz 写出，{size/1e6:.2f} MB", flush=True)
 
     # ---------- 一致性抽查（对 result4.xlsx 内生版） ----------
-    wb = openpyxl.load_workbook(A_DIR / "04-结果" / "result4.xlsx", read_only=True)
+    wb = openpyxl.load_workbook(A_DIR / "结果" / "result4.xlsx", read_only=True)
     ws = wb["Sheet1"]
     rows = list(ws.iter_rows(min_row=2, values_only=True))
     wb.close()
@@ -123,7 +123,7 @@ def main():
     (HERE / "q4_endo_fields_README.md").write_text(f"""# q4_endo_fields.npz 说明
 
 内生问题 4（耦合内生几何，R 由湿度场经闭合 C 预测）的完整时空场。
-复现：`cd 03-数据 && python run_q4_endo_fields.py`（约 {time.perf_counter()-t_start:.0f} s）。
+复现：`cd 数据 && python run_q4_endo_fields.py`（约 {time.perf_counter()-t_start:.0f} s）。
 
 | 键 | 形状 | 单位 | 说明 |
 |---|---|---|---|

@@ -13,9 +13,9 @@
   离散上与基线同一串联阻力结构：表面汇等价于把环境驱动温度降低
   L_v·j_w/h（R_ext·F_lat，Picard 冻结上一外场迭代的 j_w）。
 - 全部相变发生在表面、忽略表面储能；内部相变源情景不在本脚本求解
-  （量级讨论见 03-数据/latent_scenario.csv 头部注释与论文 §2.3-3）。
+  （量级讨论见 数据/latent_scenario.csv 头部注释与论文 §2.3-3）。
 
-产物：../03-数据/latent_scenario.csv（两模型 T_s/T_center/Um 逐时对照 + t_f）。
+产物：../数据/latent_scenario.csv（两模型 T_s/T_center/Um 逐时对照 + t_f）。
 内置断言：基线 t_f 复现 57.1799 h（容差 0.02 h，与生产 run_q23 同码同参）。
 """
 from __future__ import annotations
@@ -38,7 +38,7 @@ from run_q23 import read_env, make_env
 LV = 2.4e6          # 近似汽化潜热 J/kg（情景声明值）
 TF_BASE_REF = 57.1799     # 生产基线 t_f3（run_q23，N=160）
 A_DIR = CODE_DIR.parent
-OUT_CSV = A_DIR / "03-数据" / "latent_scenario.csv"
+OUT_CSV = A_DIR / "数据" / "latent_scenario.csv"
 
 
 def rho_d_s(Us):
@@ -202,7 +202,7 @@ def main():
                     f"{lat['log']['Ts'][i]:.4f},{base['log']['Tc'][i]:.4f},"
                     f"{lat['log']['Tc'][i]:.4f},{base['log']['Um'][i]:.6f},"
                     f"{lat['log']['Um'][i]:.6f}\n")
-    print(f"written: 03-数据/latent_scenario.csv（{n} 行逐时对照）", flush=True)
+    print(f"written: 数据/latent_scenario.csv（{n} 行逐时对照）", flush=True)
     print(f"[完成] 总耗时 {time.perf_counter()-t0:.0f} s", flush=True)
 
 

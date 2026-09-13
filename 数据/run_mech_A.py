@@ -16,8 +16,8 @@ import openpyxl
 
 HERE = Path(__file__).resolve().parent
 A_DIR = HERE.parent
-sys.path.insert(0, str(A_DIR / "02-代码"))
-sys.path.insert(0, str(A_DIR / "03-数据"))
+sys.path.insert(0, str(A_DIR / "代码"))
+sys.path.insert(0, str(A_DIR / "数据"))
 
 from solver_q1 import R0, T0_K, C0, HM, H
 from solver_q4 import D_of4, k_of4, rho_cp4

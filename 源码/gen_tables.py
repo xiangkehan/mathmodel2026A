@@ -1,15 +1,15 @@
-"""由 03-数据 的 CSV 唯一数据源生成 LaTeX 表格（tables.tex），禁止手工誊数。
+"""由 数据 的 CSV 唯一数据源生成 LaTeX 表格（tables.tex），禁止手工誊数。
 
-用法：python gen_tables.py   （在 06-论文 目录下运行）
+用法：python gen_tables.py   （在 源码 目录下运行）
 """
 from __future__ import annotations
 
 import csv
 from pathlib import Path
 
-DATA = Path(__file__).resolve().parent.parent / "03-数据"
+DATA = Path(__file__).resolve().parent.parent / "数据"
 OUT = Path(__file__).resolve().parent / "tables.tex"
-RESULT4 = Path(__file__).resolve().parent.parent / "04-结果" / "result4.xlsx"
+RESULT4 = Path(__file__).resolve().parent.parent / "结果" / "result4.xlsx"
 
 POS5 = ["0", "0.5", "1", "1.5", "2"]
 COLS6 = ["0", "0.5", "1", "1.5", "药材表面"]

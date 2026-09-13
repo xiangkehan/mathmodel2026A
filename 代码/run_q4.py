@@ -2,15 +2,15 @@
 
 用法：  python run_q4.py
 产物：
-  ../04-结果/result4.xlsx        （Sheet1，60 s × 21 列[0…1.9,药材表面]，x>R(t) 留空，
+  ../结果/result4.xlsx        （Sheet1，60 s × 21 列[0…1.9,药材表面]，x>R(t) 留空，
                                   末行 = t_f 数据行）
-  ../03-数据/q4_convergence.csv  （② 主解 t_f 随 N 收敛序列）
-  ../03-数据/q4_split.csv        （T6 效应拆分三 t_f）
-  ../03-数据/q4_v5.csv           （V5 退化对照）
-  ../03-数据/q4_conservation.csv
-  ../03-数据/q4_bound.csv        （收缩下界复算）
-  ../03-数据/q4_t7.csv           （T7 反推对比）
-  ../03-数据/q4_summary.json, q4_main_steps.npz
+  ../数据/q4_convergence.csv  （② 主解 t_f 随 N 收敛序列）
+  ../数据/q4_split.csv        （T6 效应拆分三 t_f）
+  ../数据/q4_v5.csv           （V5 退化对照）
+  ../数据/q4_conservation.csv
+  ../数据/q4_bound.csv        （收缩下界复算）
+  ../数据/q4_t7.csv           （T7 反推对比）
+  ../数据/q4_summary.json, q4_main_steps.npz
 """
 from __future__ import annotations
 
@@ -40,8 +40,8 @@ from run_q23 import read_env, make_env, interp_rows, write_xlsx_stream
 A_DIR = CODE_DIR.parent
 ATT2 = A_DIR / "01-题目" / "原始文件" / "附件2.xlsx"
 TPL4 = A_DIR / "01-题目" / "原始文件" / "附件3" / "result4.xlsx"
-OUT4 = A_DIR / "04-结果" / "result4.xlsx"
-DATA_DIR = A_DIR / "03-数据"
+OUT4 = A_DIR / "结果" / "result4.xlsx"
+DATA_DIR = A_DIR / "数据"
 
 N_MAIN = 160
 POS_CM = np.arange(0.0, 1.91, 0.1)          # 20 固定列 0…1.9

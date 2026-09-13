@@ -2,7 +2,7 @@
 
 只读 01-题目/ 下的原始文件，输出到 stdout（重定向为 交付口径-核对输出.txt）。
 依赖：openpyxl（模板）、pymupdf（PDF 表结构证据）。
-用法：PYTHONIOENCODING=utf-8 python 03-数据/交付口径-核对.py > 03-数据/交付口径-核对输出.txt
+用法：PYTHONIOENCODING=utf-8 python 数据/交付口径-核对.py > 数据/交付口径-核对输出.txt
 """
 
 import os

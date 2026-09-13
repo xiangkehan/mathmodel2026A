@@ -16,7 +16,7 @@
 \lstset{basicstyle=\ttfamily\codefont\small,breaklines=true,columns=flexible,frame=single,numbers=left,numberstyle=\tiny,
         showstringspaces=false,xleftmargin=15pt,framexleftmargin=11.6pt,xrightmargin=3.4pt,numbersep=5pt}
 \usepackage[colorlinks=true,linkcolor=black,citecolor=black,urlcolor=black]{hyperref}
-\graphicspath{{../05-图表/}}
+\graphicspath{{../图表/}}
 \numberwithin{equation}{section}
 \renewcommand{\arraystretch}{1.25}
 
@@ -40,7 +40,7 @@
 }{\par}
 
 \newcommand{\figplaceholder}[1]{\fbox{\parbox[c][5.5cm][c]{0.86\linewidth}{\centering 图位：#1}}}
-\newcommand{\includefig}[3][0.86\linewidth]{\IfFileExists{../05-图表/#2}{\includegraphics[width=#1]{#2}}{\figplaceholder{#3}}}
+\newcommand{\includefig}[3][0.86\linewidth]{\IfFileExists{../图表/#2}{\includegraphics[width=#1]{#2}}{\figplaceholder{#3}}}
 
 \makeatletter
 \renewcommand\@maketitle{%
@@ -1017,7 +1017,7 @@ $\rho_{sk}$ 均获得支持；\textbf{$k_p$ 存疑}：它只有曲线拟合一�
 没有独立的物理观测量，置信区间也最宽，达 24\%；但 $k_p$ 只影响过渡带形状，
 不触及达标时间与平台半径的结论。
 力学扩展模型的标定（4 起点同一解、留出、bootstrap、末端平衡分析）
-见 5.5 节正文与数据文件 \texttt{03-数据/mechRefit.csv}。
+见 5.5 节正文与数据文件 \texttt{数据/mechRefit.csv}。
 
 \section{复现说明与代码结构}
 一条命令 \texttt{python run\_all.py} 依次执行下列脚本；Windows 下需先设置
@@ -1032,7 +1032,7 @@ numpy/scipy/pandas/openpyxl。
   \item \texttt{run\_m4.py}：无量纲判据回代检验 + 敏感性汇总 + 误差分量汇总 +
         V2 尾段 + 结果汇总；
   \item \texttt{latent\_scenario.py}：潜热对照情景（5.3 节）；
-  \item \texttt{run\_mech\_refit.py}（03-数据）：力学扩展模型重标定（5.5 节）。
+  \item \texttt{run\_mech\_refit.py}（数据）：力学扩展模型重标定（5.5 节）。
 \end{itemize}
 全部结果文件确定性写出（固定归档时间戳），连续两次运行 result1--4 的 md5
 完全一致（result1 \texttt{22eb47f7…}、result2 \texttt{12cde4e8…}、
@@ -1044,13 +1044,13 @@ result3 \texttt{fbe982ff…}、result4 \texttt{80c73431…}）。
 按源码仓库结构分组。下列清单与该交付文件夹内容逐项一致。
 
 \textbf{如何复现}：打开（或解包）后进入 \texttt{论文/支撑材料/}，该目录完整镜像源码仓库的相对结构
-（\texttt{02-代码/}、\texttt{03-数据/}、\texttt{04-结果/}、\texttt{05-图表/}、\texttt{06-论文/}），
+（\texttt{代码/}、\texttt{数据/}、\texttt{结果/}、\texttt{图表/}、\texttt{源码/}），
 脚本按仓库相对路径解析的输入输出路径、以及本文的插图与源码引用路径均\textbf{原样成立}，无需调整目录。
-编译论文：\texttt{cd 支撑材料/06-论文 \&\& xelatex 中药材烘干热湿耦合建模、守恒求解与模型检验.tex}
-（连跑两遍以解析交叉引用）；复现结果：\texttt{cd 支撑材料/02-代码 \&\& python run\_all.py}，
-按既定顺序执行全部脚本并由脚本写出四个结果工作簿与 \texttt{03-数据/} 的中间数据
-（\texttt{03-数据/} 下的 \texttt{.npz} 张量缓存合计约 23.5 MB，超 20 MB 上限，由该命令重新生成，故未随包提供）。
-\texttt{04-结果/} 是脚本的结果写入处，交付结果工作簿同时置于包根目录，故该目录在包内留空，
+编译论文：\texttt{cd 支撑材料/源码 \&\& xelatex 中药材烘干热湿耦合建模、守恒求解与模型检验.tex}
+（连跑两遍以解析交叉引用）；复现结果：\texttt{cd 支撑材料/代码 \&\& python run\_all.py}，
+按既定顺序执行全部脚本并由脚本写出四个结果工作簿与 \texttt{数据/} 的中间数据
+（\texttt{数据/} 下的 \texttt{.npz} 张量缓存合计约 23.5 MB，超 20 MB 上限，由该命令重新生成，故未随包提供）。
+\texttt{结果/} 是脚本的结果写入处，交付结果工作簿同时置于包根目录，故该目录在包内留空，
 保留它是为了复跑时不必手工建目录。赛题原件按规范第十一条豁免未随包。
 
 {\raggedright
@@ -1059,13 +1059,13 @@ result3 \texttt{fbe982ff…}、result4 \texttt{80c73431…}）。
   \item \textbf{论文/}（6）：\texttt{中药材烘干热湿耦合建模、守恒求解与模型检验.pdf}\fsep
         \texttt{result1.xlsx}\fsep \texttt{result2.xlsx}\fsep \texttt{result3.xlsx}\fsep
         \texttt{result4.xlsx}\fsep \texttt{AI工具使用声明.docx}；
-  \item \textbf{论文/支撑材料/02-代码/}（13）：\texttt{analytic\_heat.py}\fsep
+  \item \textbf{论文/支撑材料/代码/}（13）：\texttt{analytic\_heat.py}\fsep
         \texttt{endogenous\_calibrated.py}\fsep \texttt{latent\_scenario.py}\fsep
         \texttt{mech\_shrinkage.py}\fsep \texttt{plot\_all.py}\fsep \texttt{run\_all.py}\fsep
         \texttt{run\_m4.py}\fsep \texttt{run\_q1.py}\fsep \texttt{run\_q23.py}\fsep
         \texttt{run\_q4.py}\fsep \texttt{solver\_q1.py}\fsep \texttt{solver\_q23.py}\fsep
         \texttt{solver\_q4.py}；
-  \item \textbf{论文/支撑材料/03-数据/}（20）：\texttt{run\_mech\_A.py}\fsep
+  \item \textbf{论文/支撑材料/数据/}（20）：\texttt{run\_mech\_A.py}\fsep
         \texttt{run\_mech\_mainline.py}\fsep \texttt{run\_mech\_refit.py}\fsep
         \texttt{run\_q4\_endo.py}\fsep \texttt{run\_q4\_endo\_fields.py}\fsep
         \texttt{交付口径-核对.py}\fsep \texttt{结果总账.csv}\fsep \texttt{paper\_tables.csv}\fsep
@@ -1074,8 +1074,8 @@ result3 \texttt{fbe982ff…}、result4 \texttt{80c73431…}）。
         \texttt{sensitivity.csv}\fsep \texttt{error\_budget.csv}\fsep
         \texttt{latent\_scenario.csv}\fsep \texttt{D\_of\_C.csv}\fsep \texttt{surface\_flux.csv}\fsep
         \texttt{交付口径.md}\fsep \texttt{力学升级\_修复重标定.md}\fsep \texttt{内生收缩模型.md}；
-  \item \textbf{论文/支撑材料/04-结果/}（0）：空目录（脚本的结果写入处，交付结果同时在包根目录）；
-  \item \textbf{论文/支撑材料/05-图表/}（17）：\texttt{fig1\_输入数据.pdf}\fsep
+  \item \textbf{论文/支撑材料/结果/}（0）：空目录（脚本的结果写入处，交付结果同时在包根目录）；
+  \item \textbf{论文/支撑材料/图表/}（17）：\texttt{fig1\_输入数据.pdf}\fsep
         \texttt{fig2\_问题1解析验证.pdf}\fsep \texttt{fig3\_温湿剖面.pdf}\fsep
         \texttt{fig4\_达标穿越.pdf}\fsep \texttt{fig5\_敏感性.pdf}\fsep
         \texttt{fig6\_收缩机制分析.pdf}\fsep \texttt{fig7\_内生收缩贴合.pdf}\fsep
@@ -1085,7 +1085,7 @@ result3 \texttt{fbe982ff…}、result4 \texttt{80c73431…}）。
         \texttt{fig15\_收敛与守恒检验.pdf}\fsep \texttt{fig16\_中心表面演化与半径收缩.pdf}\fsep
         \texttt{fig17\_几何模型与边界条件示意图.pdf}\fsep
         \texttt{\_fig4\_对照\_附4固定R\_maxU.csv}；
-  \item \textbf{论文/支撑材料/06-论文/}（7）：\texttt{中药材烘干热湿耦合建模、守恒求解与模型检验.tex}\fsep
+  \item \textbf{论文/支撑材料/源码/}（7）：\texttt{中药材烘干热湿耦合建模、守恒求解与模型检验.tex}\fsep
         \texttt{tables.tex}\fsep \texttt{gen\_tables.py}\fsep
         \texttt{check\_abstract.py}\fsep \texttt{check\_numbers.py}\fsep
         \texttt{check\_refs.py}\fsep \texttt{check\_table6.py}。
@@ -1122,25 +1122,25 @@ def coupled_step(U, T, dt, Ta, Cenv, dq, newton):
 
 \section{核心程序代码}
 本附录列出四个核心模块的完整源码，共 868 行；四份源码均自源文件直接引入，未手工转录。
-其余脚本、数据与图表的完整可运行代码见支撑材料 \texttt{论文/支撑材料/02-代码/}（13 个脚本）
-与 \texttt{论文/支撑材料/03-数据/}（6 个脚本与全部证据数据）。
+其余脚本、数据与图表的完整可运行代码见支撑材料 \texttt{论文/支撑材料/代码/}（13 个脚本）
+与 \texttt{论文/支撑材料/数据/}（6 个脚本与全部证据数据）。
 
 \subsection{解析谱解}
 圆柱 Robin 特征展开与时变环境 Duhamel 卷积的解析解，用作问题 1 的独立参照（V1）。
-\lstinputlisting[language=Python,caption={解析谱解（analytic\_heat.py，122 行）}]{../02-代码/analytic_heat.py}
+\lstinputlisting[language=Python,caption={解析谱解（analytic\_heat.py，122 行）}]{../代码/analytic_heat.py}
 
 \subsection{热湿耦合主求解器}
 质量坐标下的守恒型有限体积格式：半单元内阻与外对流阻串联重建表面值、
 后向欧拉加局部外推、Picard--Newton 交替迭代、自适应步长。
-\lstinputlisting[language=Python,caption={热湿耦合主求解器（solver\_q23.py，271 行）}]{../02-代码/solver_q23.py}
+\lstinputlisting[language=Python,caption={热湿耦合主求解器（solver\_q23.py，271 行）}]{../代码/solver_q23.py}
 
 \subsection{移动域求解器}
 仿射收缩 $r=R(t)\sqrt q$ 下的移动域求解与达标判定。
-\lstinputlisting[language=Python,caption={移动域求解器（solver\_q4.py，232 行）}]{../02-代码/solver_q4.py}
+\lstinputlisting[language=Python,caption={移动域求解器（solver\_q4.py，232 行）}]{../代码/solver_q4.py}
 
 \subsection{内生收缩闭合}
 由湿度场逐步预测半径 $R(t)$ 的半经验闭合（三项机制），标定参数见附录 C。
-\lstinputlisting[language=Python,caption={内生收缩闭合（endogenous\_calibrated.py，243 行）}]{../02-代码/endogenous_calibrated.py}
+\lstinputlisting[language=Python,caption={内生收缩闭合（endogenous\_calibrated.py，243 行）}]{../代码/endogenous_calibrated.py}
 
 \clearpage
 \section*{AI 工具使用声明}

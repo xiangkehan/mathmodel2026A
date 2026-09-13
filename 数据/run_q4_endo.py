@@ -2,10 +2,10 @@
 
 一条命令复现：python run_q4_endo.py
 - 几何：耦合内生闭合 C（R 由湿度场逐步预测，不读附件 2；标定见 内生收缩模型.md）
-- 求解器：import solver_q4（不改 02-代码 既有文件）；驱动为本文件的自适应
+- 求解器：import solver_q4（不改 代码 既有文件）；驱动为本文件的自适应
   一步对两半步外推 + 守恒双恒等式窗口对账（与 solver_q4.solve_coupled4 同结构）。
 产物：
-  ../04-结果/result4.xlsx（内生版，口径同交付口径.md §4+§5.1）
+  ../结果/result4.xlsx（内生版，口径同交付口径.md §4+§5.1）
   q4_endo_convergence.csv / q4_endo_check.csv
   q4_split.csv（内生主口径 T6 效应拆分；外生行保留并标注“附件2外生几何（交叉验证）”）
   结果总账.csv（就地更新问题 4 行；以 (类别,项目,子项) 为键覆盖/去重，幂等）
@@ -22,9 +22,9 @@ from pathlib import Path
 
 import numpy as np
 
-HERE = Path(__file__).resolve().parent          # 03-数据
+HERE = Path(__file__).resolve().parent          # 数据
 A_DIR = HERE.parent
-sys.path.insert(0, str(A_DIR / "02-代码"))
+sys.path.insert(0, str(A_DIR / "代码"))
 
 from solver_q1 import R0, H, T0_K, C0
 from solver_q4 import PROPS4, D_of4, k_of4, surface_m4, coupled_step4, PROBE

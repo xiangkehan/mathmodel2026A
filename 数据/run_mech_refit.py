@@ -2,7 +2,7 @@
 
 用法：python run_mech_refit.py
 依据：other/论文审计意见-de5b9ab-20260912.md（A04/A05）；
-     03-数据/力学升级_修复重标定.md（本脚本产出笔记）。
+     数据/力学升级_修复重标定.md（本脚本产出笔记）。
 """
 from __future__ import annotations
 
@@ -15,8 +15,8 @@ from scipy.optimize import least_squares
 
 HERE = Path(__file__).resolve().parent
 A_DIR = HERE.parent
-sys.path.insert(0, str(A_DIR / "02-代码"))
-sys.path.insert(0, str(A_DIR / "03-数据"))
+sys.path.insert(0, str(A_DIR / "代码"))
+sys.path.insert(0, str(A_DIR / "数据"))
 
 from solver_q1 import C0
 from run_mech_mainline import P_fit, coupled_run, degradation, rmse_of
@@ -42,7 +42,7 @@ def seg_err(Rp, a, b):
 def terminal_J(beta, w_end=0.0128, s0=0.1743):
     """大 p* 极限下末端平衡 J：解 J·g(S(J);β)=g(S0;β)（弹性体、内变量松弛）。"""
     import sys as _s
-    _s.path.insert(0, str(A_DIR / "02-代码"))
+    _s.path.insert(0, str(A_DIR / "代码"))
     from mech_shrinkage import MechParams
     P = MechParams(rho_d0=1.0, rho_s=RHO_S, p_star=1.0, ret_model="power", q_pow=beta)
     gS0 = float(P.pbar_c(0.7907))

@@ -1,7 +1,7 @@
 """M4：判据族（D1）+ 敏感性矩阵（D2）+ 误差预算（D3）+ V2 尾段对拍（D4）+ 结果总账（D5）。
 
 用法：  python run_m4.py        （需 run_q1/run_q23/run_q4 的产物 npz 已存在）
-产物（../03-数据/）：
+产物（../数据/）：
   criteria.csv       判据族表（Le/Bi_m/Bi_h 全区间 + 反验 Δt_f）
   sensitivity.csv    敏感性矩阵（每组实测 Δt_f）
   error_budget.csv   误差预算表（≥6 源 + 确定性合成）
@@ -31,20 +31,20 @@ from run_q23 import read_env, make_env, interp_rows
 from run_q4 import read_radius
 
 A_DIR = CODE_DIR.parent
-DATA_DIR = A_DIR / "03-数据"
+DATA_DIR = A_DIR / "数据"
 
 CE_Q3 = 0.04986          # 题目口径（末值保持）
 CE_YAM = 0.1366          # 山药解吸支（题外修正，只入敏感性）
 TF3_H = 57.17992518
 TF4_H = 50.823025
 
-# 敏感性行的“备注覆盖”：问题 4 效应拆分那三行须与 03-数据/run_q4_endo.py 的 ledger upsert
+# 敏感性行的“备注覆盖”：问题 4 效应拆分那三行须与 数据/run_q4_endo.py 的 ledger upsert
 # 逐字一致（键、值、备注），否则两脚本会把「外生基准」与「内生基准」两套行按运行顺序互相覆盖。
 SENS_NOTE: dict[str, str] = {}
 
 
 def read_q4_split():
-    """q4_split.csv（由 03-数据/run_q4_endo.py 产出）→ {case: 数值}；文件缺失返回 {}。"""
+    """q4_split.csv（由 数据/run_q4_endo.py 产出）→ {case: 数值}；文件缺失返回 {}。"""
     p = DATA_DIR / "q4_split.csv"
     if not p.exists():
         return {}
@@ -299,7 +299,7 @@ def table6_from_result4(pt_rows):
     位置超出当前表面时单元格为空 → 该格留空（tables.tex 渲染为“—”），与交付口径一致。
     内生工作簿不存在时原样返回（保持旧行为）。
     """
-    xlsx = A_DIR / "04-结果" / "result4.xlsx"
+    xlsx = A_DIR / "结果" / "result4.xlsx"
     if not xlsx.exists():
         return pt_rows
     import openpyxl
@@ -407,7 +407,7 @@ def main():
                 f"Δ{q4sp['net_effect_endo_h']:+.4f} h（公式+收缩效应 "
                 f"{q4sp['net_pct_of_q3_endo']:.1f}%）"})
     else:                                   # 降级：无 q4_split.csv 时保持旧口径并明确告警
-        print("[D2] 警告：缺 03-数据/q4_split.csv（先跑 run_q4_endo.py）；"
+        print("[D2] 警告：缺 数据/q4_split.csv（先跑 run_q4_endo.py）；"
               "问题 4 效应拆分行回落为外生基准，与 run_q4_endo.py 写出的键值不一致", flush=True)
         sens += [("问题4效应拆分:附4固定R", 129.104709, 129.104709 - tf4_80),
                  ("问题4效应拆分:附4+R(t)(主)", TF4_H, TF4_H - tf4_80),
@@ -514,7 +514,7 @@ def main():
         A(("误差预算", name, "", f"{v:.4g}", typ))
     A(("误差预算", "已检查因素累计偏移量级(问题3)", "", f"{total_q3:.2f}", "h(不含C_e口径/潜热情景)"))
     A(("误差预算", "已检查因素累计偏移量级(问题4)", "", f"{total_q4:.2f}", "h(不含C_e口径/潜热情景)"))
-    # 潜热对照情景（审计 A01；02-代码/latent_scenario.py 产出，# key=value 头；缺失则跳过）
+    # 潜热对照情景（审计 A01；代码/latent_scenario.py 产出，# key=value 头；缺失则跳过）
     _lat = {}
     _lp = DATA_DIR / "latent_scenario.csv"
     if _lp.exists():

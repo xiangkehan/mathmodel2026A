@@ -7,10 +7,10 @@ result2 的 1 s 网格与 result3 的 60 s 网格均由步记录线性插值重�
 主网格 N=160（T1 已证二阶收敛，N=320 仅余量）；收敛序列/外推三档用 N=40/80。
 
 产物：
-  ../04-结果/result3.xlsx        （Sheet1，60 s × 21 列，至 t_f + 追加"烘干结束时间"行）
-  ../04-结果/result2.xlsx        （温度/水分浓度，1 s × 21 列，终点 = t_f + 3600 s 余量）
-  ../03-数据/{tf_convergence,extrapolation,conservation23,v6_fields,v3_bound}.csv
-  ../03-数据/q23_summary.json, q23_main_steps.npz
+  ../结果/result3.xlsx        （Sheet1，60 s × 21 列，至 t_f + 追加"烘干结束时间"行）
+  ../结果/result2.xlsx        （温度/水分浓度，1 s × 21 列，终点 = t_f + 3600 s 余量）
+  ../数据/{tf_convergence,extrapolation,conservation23,v6_fields,v3_bound}.csv
+  ../数据/q23_summary.json, q23_main_steps.npz
 """
 from __future__ import annotations
 
@@ -37,9 +37,9 @@ from solver_q23 import TH, D_of, solve_coupled
 A_DIR = CODE_DIR.parent
 ENV_XLSX = A_DIR / "01-题目" / "原始文件" / "附件1.xlsx"
 TPL_DIR = A_DIR / "01-题目" / "原始文件" / "附件3"
-OUT2 = A_DIR / "04-结果" / "result2.xlsx"
-OUT3 = A_DIR / "04-结果" / "result3.xlsx"
-DATA_DIR = A_DIR / "03-数据"
+OUT2 = A_DIR / "结果" / "result2.xlsx"
+OUT3 = A_DIR / "结果" / "result3.xlsx"
+DATA_DIR = A_DIR / "数据"
 
 N_MAIN = 160
 MARGIN = 3600.0

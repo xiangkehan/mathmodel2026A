@@ -1,5 +1,5 @@
 # D_of_C.csv —— 三族附录材料参数扩散系数（fig11(a) 的唯一数据源）
-# 公式取自 02-代码/solver_q1.py（附录2）、solver_q23.py（附录3）、solver_q4.py（附录4）
+# 公式取自 代码/solver_q1.py（附录2）、solver_q23.py（附录3）、solver_q4.py（附录4）
 # 附录2 D=7e-9*exp(-0.89/C)（只依赖 C）；附录3 D=2.4e-3*exp(-0.45/C)*exp(-3850/T)；
 # 附录4 D=4.2e-4*exp(-0.30/C)*exp(-3850/T)；T 开尔文、C 干基含水率 kg/kg
 # T_ref=301.15 K（初温）、T_hot=323.315 K（环境温度上界）；生成：python plot_all.py fig11

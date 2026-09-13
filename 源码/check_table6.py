@@ -1,6 +1,6 @@
 """check_table6.py：逐格核对论文表 11（tables.tex 的 tab:表6）与内生交付工作簿 result4.xlsx。
 
-用法：python check_table6.py        （在 06-论文 目录下运行）
+用法：python check_table6.py        （在 源码 目录下运行）
 退出码：0 = 全部数据格一致；1 = 存在差异（打印差异清单）。
 
 比对口径：表 6 的行取工作簿的 6/12/…/48 h 常规行（60 s 行程的子集）与末行（t_f 数据行）；
@@ -14,7 +14,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 TEX = HERE / "tables.tex"
-RESULT4 = HERE.parent / "04-结果" / "result4.xlsx"
+RESULT4 = HERE.parent / "结果" / "result4.xlsx"
 COLS6 = ["0", "0.5", "1", "1.5", "药材表面"]
 ROW_END = "烘干结束时间"
 

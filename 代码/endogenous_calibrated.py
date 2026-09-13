@@ -8,8 +8,8 @@
                                           C_s 穿越 C_glass=0.21（文献值，非拟合）物理触发
 标定参数（5 个，拟合附件 2，逐项标注来源）：ε_c, a, b, ε_p, k_p。
 
-用法：cd 02-代码 && python endogenous_calibrated.py
-产物：../03-数据/endogenous_calibrated.csv、../03-数据/endogenous_coupled.csv（数值产物）；
+用法：cd 代码 && python endogenous_calibrated.py
+产物：../数据/endogenous_calibrated.csv、../数据/endogenous_coupled.csv（数值产物）；
       ../08-临时/内生收缩_标定验证.png（预览图，非论文交付图，论文用 fig7_内生收缩贴合）。
 """
 from __future__ import annotations
@@ -22,10 +22,10 @@ import openpyxl
 from scipy.optimize import least_squares
 from scipy.interpolate import PchipInterpolator
 
-HERE = Path(__file__).resolve().parent          # 02-代码
+HERE = Path(__file__).resolve().parent          # 代码
 A_DIR = HERE.parent                             # 项目根（A/）
 sys.path.insert(0, str(HERE))
-DATA = A_DIR / "03-数据"
+DATA = A_DIR / "数据"
 SCRATCH = A_DIR / "08-临时"                     # 预览图等非交付产物
 
 from solver_q1 import R0, C0

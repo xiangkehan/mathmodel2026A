@@ -1,10 +1,10 @@
-"""M5 图表生成（出版级样式重构版）：从 03-数据/ 的唯一数据源出 6 张论文用矢量图。
+"""M5 图表生成（出版级样式重构版）：从 数据/ 的唯一数据源出 6 张论文用矢量图。
 
 用法：  python plot_all.py            # 一次出全部 10 张（PDF + 300dpi PNG + 灰度预览）
          python plot_all.py fig4       # 只出某一张（调试用）
          python plot_all.py --no-cache # fig4 的附4固定R对照曲线强制重算
 
-样式规范（同 05-图表/样式重构说明.md，供论文侧协调尺寸）：
+样式规范（同 图表/样式重构说明.md，供论文侧协调尺寸）：
   * 按最终物理尺寸设计，导出后不再缩放：单面板宽 5.4 in（= 0.86×6.3 in 正文文本宽），
     双子图宽 6.3 in（= \\linewidth 6.3 in），纵横比 0.50–0.62。
   * Okabe-Ito 色盲安全色板 + 语义色映射 ROLE（同一变量跨图同色）+ 线型/标记冗余编码。
@@ -23,20 +23,20 @@
   fig5  sensitivity.csv（敏感性因素）、q4_split.csv（问题4 效应拆分，基准＝内生几何主解）、
         error_budget.csv
   fig6  endogenous_shrinkage.csv（附件2 时刻网格上的各闭合 R_pred、Ū_model、Ū_inf；
-        其驱动场为**附件2 几何（外生 R）**的求解结果，见 03-数据/内生收缩分析.md）；
+        其驱动场为**附件2 几何（外生 R）**的求解结果，见 数据/内生收缩分析.md）；
         缺列时回退 附件2.xlsx、q4_main_steps.npz
   fig7  endogenous_calibrated.csv（附件2 网格上的 R_data、R_pred、残差、失水基线；
-        标定用的驱动场同为附件2 几何，见 03-数据/内生收缩模型.md）
+        标定用的驱动场同为附件2 几何，见 数据/内生收缩模型.md）
   fig9  q4_endo_fields.npz（同问题4 内生时空场 → 6 个时刻的圆盘截面）
   fig10 mechRefit.csv（145 点 R_data/R_pred/残差）、mechRefit_fields.npz（重标定参数、
         全程场量 ū/De/g、末端平衡表 terminal、t_f_h）；口径见
-        03-数据/力学升级_修复重标定.md（A04/A05 修复后重标定的幂律吸力力学模型，
+        数据/力学升级_修复重标定.md（A04/A05 修复后重标定的幂律吸力力学模型，
         取代此前的线性检验本构情景族；旧文 力学升级_重标定.md 的数值一律作废）
 
 口径常数（非结果数字，仅用于画线/判定，来源已注明）：
   TH = 0.15 kg/kg  —— 题目问题 3 原文“水分浓度应低于 0.15 kg/kg”
   fig6 H_SEG / C_GLASS / RHO_SK —— 附件2 三段分界、玻璃化含水率、骨架密度，
-    来源 03-数据/内生收缩分析.md §0–§1（图内所有半径/含水率/交叉点数字仍从数据读出）
+    来源 数据/内生收缩分析.md §0–§1（图内所有半径/含水率/交叉点数字仍从数据读出）
   其余全部数字（含 35 h 冻结点、参考时标）均从上述数据文件读出，脚本内不誊写结果。
 """
 from __future__ import annotations
@@ -62,8 +62,8 @@ from matplotlib.text import Text
 
 CODE_DIR = Path(__file__).resolve().parent
 A_DIR = CODE_DIR.parent
-DATA_DIR = A_DIR / "03-数据"
-FIG_DIR = A_DIR / "05-图表"
+DATA_DIR = A_DIR / "数据"
+FIG_DIR = A_DIR / "图表"
 QA_DIR = FIG_DIR / "_qa"                     # 灰度预览等自检产物（不入 git）
 ATT1 = A_DIR / "01-题目" / "原始文件" / "附件1.xlsx"
 ATT2 = A_DIR / "01-题目" / "原始文件" / "附件2.xlsx"
@@ -93,7 +93,7 @@ OI = dict(
     magenta="#CC79A7", sky="#56B4E9", grey="#6B7280", dark="#222222",
 )
 
-# ---- 语义色映射（同一变量跨图同色；见 05-图表/样式重构说明.md 的映射表）----
+# ---- 语义色映射（同一变量跨图同色；见 图表/样式重构说明.md 的映射表）----
 ROLE = dict(
     data=OI["dark"],        # 附件/实测数据（附件1 温湿、附件2 R(t)）
     model=OI["blue"],       # 模型主解（问题4 主解；fig6 最接近的零拟合闭合）
@@ -187,7 +187,7 @@ def read_att2():
 
 
 def read_csv_rows(name):
-    """读 03-数据/ 下的 csv，返回 (表头, [dict, ...])；兼容注释行（首个字段以 # 开头）
+    """读 数据/ 下的 csv，返回 (表头, [dict, ...])；兼容注释行（首个字段以 # 开头）
     与字段内混入英文逗号的情形（把多余的分段并回首列）。"""
     with open(DATA_DIR / name, encoding="utf-8") as f:
         rows = [r for r in csv.reader(f) if r and not r[0].startswith("#")]
@@ -594,9 +594,9 @@ def fig2():
     """(a) 特征位置温度时程：中心 r=0 与表面 r=R₀ 的数值解 vs 半解析解；
     (b) 偏差 |T_num−T 解析| 时程（对数纵轴），标出四位小数输出分辨率 5e-5 ℃。
 
-    数据源 03-数据/q1_fields.npz（times/T_C/Ts，1 s 网格 0–1800 s）、
-    03-数据/v1_points_final.csv（比较点的 T_num/T_analytic/abs_dev）；
-    半解析解由 02-代码/analytic_heat.py 的 Robin 谱解现算（300 模，0–1800 s 同网格）。
+    数据源 数据/q1_fields.npz（times/T_C/Ts，1 s 网格 0–1800 s）、
+    数据/v1_points_final.csv（比较点的 T_num/T_analytic/abs_dev）；
+    半解析解由 代码/analytic_heat.py 的 Robin 谱解现算（300 模，0–1800 s 同网格）。
     """
     from analytic_heat import RobinCylinder
     from solver_q1 import ALPHA, BI_H, R0, T0_K
@@ -668,7 +668,7 @@ def fig3():
     """多时刻径向剖面：温度（3 h 内）与水分浓度（全程）——线色按时间 viridis 映射，
     每面板配竖直 colorbar（标"时间 (h)"），剖面用"散点+连线"（每 4 点一个标记）。
 
-    数据源 03-数据/q23_main_steps.npz（t、C、T）；t_f 与判据区间取自 q23_summary.json /
+    数据源 数据/q23_main_steps.npz（t、C、T）；t_f 与判据区间取自 q23_summary.json /
     criteria.csv。定量读数是"时间色阶 + colorbar"，图例仅列 4 个代表时刻。
     """
     d = np.load(DATA_DIR / "q23_main_steps.npz")
@@ -1013,8 +1013,8 @@ def fig5():
 def fig6():
     """附件2 收缩曲线是“多机制复合”的诊断：三条零拟合闭合 vs 附件2（不改主模型）。
 
-    数字全部读自 03-数据/endogenous_shrinkage.csv（附件2 时刻网格上的各闭合 R_pred）；
-    缺列时按 03-数据/内生收缩分析.md 的口径回退到 附件2.xlsx / q4_main_steps.npz。
+    数字全部读自 数据/endogenous_shrinkage.csv（附件2 时刻网格上的各闭合 R_pred）；
+    缺列时按 数据/内生收缩分析.md 的口径回退到 附件2.xlsx / q4_main_steps.npz。
     """
     from solver_q1 import C0, R0        # 初始干基含水率 kg/kg / 初始半径 m（题目材料参数）
 
@@ -1050,7 +1050,7 @@ def fig6():
             if v is None]
     assert not miss, f"endogenous_shrinkage.csv 缺列（且无回退）: {miss}"
 
-    # ---- 口径常数（非计算结果；来源：03-数据/内生收缩分析.md）----
+    # ---- 口径常数（非计算结果；来源：数据/内生收缩分析.md）----
     H_SEG = (3.5, 21.0)     # §0 附件2 三段形态：A/B、B/C 分界（h）
     C_GLASS = 0.21          # §1 闭合3 玻璃化转变含水率（Gordon–Taylor 反解）kg/kg
     RHO_SK = 1468.0         # §1 闭合5 骨架密度（文献值）kg/m³
@@ -1181,8 +1181,8 @@ def fig6():
 def fig7():
     """内生收缩模型（闭合 C，5 参数标定）对附件2 的贴合度：R(t) 对比 + 残差带。
 
-    数字全部读自 03-数据/endogenous_calibrated.csv（附件2 时刻网格上的 R_data / R_pred /
-    R_ideal / 残差）；模型结构与标定口径见 03-数据/内生收缩模型.md（复现脚本
+    数字全部读自 数据/endogenous_calibrated.csv（附件2 时刻网格上的 R_data / R_pred /
+    R_ideal / 残差）；模型结构与标定口径见 数据/内生收缩模型.md（复现脚本
     08-临时/endogenous_calibrated.py，只读）。
     """
     head, rows = read_csv_rows("endogenous_calibrated.csv")
@@ -1400,9 +1400,9 @@ def fig9():
 def fig10():
     """修正后重标定的幂律力学模型对附件2 的拟合（三联：拟合 / 残差 / 平台机制）。
 
-    数据源：03-数据/mechRefit.csv（145 点 R_data、R_pred、残差 mm）+
+    数据源：数据/mechRefit.csv（145 点 R_data、R_pred、残差 mm）+
     mechRefit_fields.npz（重标定参数、全程场量 ū/De/g、末端平衡表 terminal）；
-    口径见 03-数据/力学升级_修复重标定.md（A04/A05 修复后重标定：幂律保水
+    口径见 数据/力学升级_修复重标定.md（A04/A05 修复后重标定：幂律保水
     p_c=p*(1−S)/S^β + 松弛蠕变，吸力单驱动；本图取代此前的线性检验本构情景族，
     旧文 力学升级_重标定.md 的数值一律作废）。
     """
@@ -1545,9 +1545,9 @@ def fig10():
 def fig11():
     """(a) 三族附录材料参数的 D(C) 曲线（y 对数轴）＋ D4/D3 比值区间；(b) 特征时间尺度（log 横轴）。
 
-    数据源：D 公式直接取自 02-代码/solver_q1.py（附录2）、solver_q23.py（附录3）、
-    solver_q4.py（附录4），并落盘 03-数据/D_of_C.csv 供复现与论文图注引用；
-    时间尺度取自 03-数据/v3_bound.csv（问题 3 口径）与 03-数据/q4_bound.csv（问题 4 口径）。
+    数据源：D 公式直接取自 代码/solver_q1.py（附录2）、solver_q23.py（附录3）、
+    solver_q4.py（附录4），并落盘 数据/D_of_C.csv 供复现与论文图注引用；
+    时间尺度取自 数据/v3_bound.csv（问题 3 口径）与 数据/q4_bound.csv（问题 4 口径）。
     """
     from solver_q1 import D_of_C as D2, R0, T0_K
     from solver_q23 import D_of as D3
@@ -1557,7 +1557,7 @@ def fig11():
     T_ref, T_hot = float(T0_K), 323.315
     cols = np.column_stack([C, D2(C), D3(C, T_ref), D4(C, T_ref), D3(C, T_hot), D4(C, T_hot)])
     hdr = ["# D_of_C.csv —— 三族附录材料参数扩散系数（fig11(a) 的唯一数据源）",
-           "# 公式取自 02-代码/solver_q1.py（附录2）、solver_q23.py（附录3）、solver_q4.py（附录4）",
+           "# 公式取自 代码/solver_q1.py（附录2）、solver_q23.py（附录3）、solver_q4.py（附录4）",
            "# 附录2 D=7e-9*exp(-0.89/C)（只依赖 C）；附录3 D=2.4e-3*exp(-0.45/C)*exp(-3850/T)；",
            "# 附录4 D=4.2e-4*exp(-0.30/C)*exp(-3850/T)；T 开尔文、C 干基含水率 kg/kg",
            "# T_ref=301.15 K（初温）、T_hot=323.315 K（环境温度上界）；生成：python plot_all.py fig11",
@@ -1632,7 +1632,7 @@ def fig11():
           f"附录4 ×{float(D4(C, T_hot)[-1]/D4(C, T_ref)[-1]):.2f}；"
           f"现算 R²/(D_max·λ₁²)={t_diff3:.4f} h（v3_bound: D_max={k3['D_max']:.4e}、λ₁={k3['lam1']:.4f}）；"
           f"时标 {len(items)} 条（{items[0][1]:.3f}–{items[-1][1]:.3f} h；蓝=附3口径、橙=附4口径、灰=现算）；"
-          f"落盘 03-数据/D_of_C.csv", flush=True)
+          f"落盘 数据/D_of_C.csv", flush=True)
     save(fig, "fig11_扩散系数与时间尺度")
 
 
@@ -1640,7 +1640,7 @@ def fig11():
 def fig12():
     """问题 1 温度场时空云图：x=时间、y=径向位置、色=温度（coolwarm）+ 等值线。
 
-    数据源 03-数据/q1_fields.npz（1800 帧 × 21 径向位置，0–1800 s、0–2 cm）。
+    数据源 数据/q1_fields.npz（1800 帧 × 21 径向位置，0–1800 s、0–2 cm）。
     定量读数由本图承担（精度校验见图 2 的偏差面板、收敛见图 15）。
     """
     d = np.load(DATA_DIR / "q1_fields.npz")
@@ -1687,7 +1687,7 @@ def fig13():
     """问题 2/3 水分场时空云图：x=时间(h)、y=径向位置(cm)、色=干基含水率（viridis）
     + 0.15 达标等值线（壳核分界）+ 壳核结构标注。
 
-    数据源 03-数据/q23_main_steps.npz（t、C；固定 R=2 cm 口径）。
+    数据源 数据/q23_main_steps.npz（t、C；固定 R=2 cm 口径）。
     """
     d = np.load(DATA_DIR / "q23_main_steps.npz")
     t_h = d["t"] / 3600.0
@@ -1747,7 +1747,7 @@ def fig14():
 
     (a) 表面水通量 j_w(t)；(b) 表面扩散系数 D_s(t)（与 (a) 共享时间轴，不用双 Y 轴）；
     (c) D_s 随表面含水率 C_s 的变化。
-    数据源 03-数据/q1_fields.npz（Cs/Ts/env_*）+ 公式现算，并落盘 03-数据/surface_flux.csv。
+    数据源 数据/q1_fields.npz（Cs/Ts/env_*）+ 公式现算，并落盘 数据/surface_flux.csv。
     口径：j_w=ρ_d,s·h_m·(U_s−C_env)（正=脱湿）、ρ_d,s=(650+128·U_s)/(1+U_s)、D_s=D_附2(C_s)。
     """
     from solver_q1 import HM, D_of_C as D2, R0
@@ -1805,7 +1805,7 @@ def fig14():
           f"{float(D_s.max()):.3e} m²/s（$C_s$ {float(Cs.min()):.4f}→{float(Cs.max()):.4f}）；"
           f"$\\rho_{{d,s}}$ {float(rho_ds.min()):.1f}–{float(rho_ds.max()):.1f} kg/m³；"
           f"$C_{{env}}$ {float(C_env.min()):.4f}–{float(C_env.max()):.4f} kg/kg；"
-          f"落盘 03-数据/surface_flux.csv（{len(t_s)} 行）", flush=True)
+          f"落盘 数据/surface_flux.csv（{len(t_s)} 行）", flush=True)
     save(fig, "fig14_表面通量与表面扩散系数")
 
 
@@ -1929,7 +1929,7 @@ def fig15():
 def fig16():
     """(a) 中心/表面含水率演化 + 0.15 阈值 + t_f 标注；(b) 半径收缩 + 附件 2 实测对照。
 
-    数据源 03-数据/q4_endo_fields.npz（t_s/Cc/Cs/R_t）、q4_endo_eval.csv（t_f）、
+    数据源 数据/q4_endo_fields.npz（t_s/Cc/Cs/R_t）、q4_endo_eval.csv（t_f）、
     附件 2（01-题目/原始文件/附件2.xlsx，实测 R）。
     """
     d = np.load(DATA_DIR / "q4_endo_fields.npz")
@@ -1988,7 +1988,7 @@ def fig16():
 def fig17():
     """几何模型与边界条件示意图（无数据曲线，纯 matplotlib patches 矢量绘制）。
 
-    口径常数取自 02-代码/solver_q1.py：$R_0$=0.02 m、$L$=0.25 m、$h$=25 W/(m²·K)、
+    口径常数取自 代码/solver_q1.py：$R_0$=0.02 m、$L$=0.25 m、$h$=25 W/(m²·K)、
     $h_m$=8e-7 m/s、$T_0$=301.15 K（28 ℃）、$U_0$=2.55 kg/kg（题目给定与声明假设）。
     """
     from solver_q1 import R0 as R0_M, H, HM, T0_K, C0
@@ -2101,7 +2101,7 @@ def main():
     else:
         print("[字体] 无缺字告警（logging + warnings 双通道）；PDF 嵌入 TrueType 子集"
               "（pdf.fonttype=42）", flush=True)
-    print(f"[灰度] 灰度预览见 05-图表/_qa/*_gray.png（逐张目视核对“不靠颜色可区分”）", flush=True)
+    print(f"[灰度] 灰度预览见 图表/_qa/*_gray.png（逐张目视核对“不靠颜色可区分”）", flush=True)
     if GLYPH.msgs or bad:
         print(f"[门禁] FAIL：缺字 {len(GLYPH.msgs)} 条，审计不合格 {len(bad)} 张 "
               f"({', '.join(r['stem'] for r in bad)})", flush=True)

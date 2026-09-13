@@ -2,12 +2,12 @@
 
 用法：  python run_q1.py
 产物：
-  ../04-结果/result1.xlsx                （温度/水分浓度，1–1800 s × 0–2.0 cm，四位小数）
-  ../03-数据/v1_convergence.csv          （热场 V1 对拍收敛序列）
-  ../03-数据/v1_points_final.csv         （最终网格 5 位置 × 7 时刻逐点偏差）
-  ../03-数据/conservation.csv            （湿分守恒门禁三档网格）
-  ../03-数据/degenerate_constD.csv       （D=const 退化 vs Bessel 级数）
-  ../03-数据/q1_fields.npz               （最终全场数据）
+  ../结果/result1.xlsx                （温度/水分浓度，1–1800 s × 0–2.0 cm，四位小数）
+  ../数据/v1_convergence.csv          （热场 V1 对拍收敛序列）
+  ../数据/v1_points_final.csv         （最终网格 5 位置 × 7 时刻逐点偏差）
+  ../数据/conservation.csv            （湿分守恒门禁三档网格）
+  ../数据/degenerate_constD.csv       （D=const 退化 vs Bessel 级数）
+  ../数据/q1_fields.npz               （最终全场数据）
 """
 from __future__ import annotations
 
@@ -31,8 +31,8 @@ from analytic_heat import RobinCylinder
 A_DIR = CODE_DIR.parent
 ENV_XLSX = A_DIR / "01-题目" / "原始文件" / "附件1.xlsx"
 TEMPLATE = A_DIR / "01-题目" / "原始文件" / "附件3" / "result1.xlsx"
-OUT_XLSX = A_DIR / "04-结果" / "result1.xlsx"
-DATA_DIR = A_DIR / "03-数据"
+OUT_XLSX = A_DIR / "结果" / "result1.xlsx"
+DATA_DIR = A_DIR / "数据"
 
 T_END = 1800
 V1_GRID = [20, 40, 80, 160, 320]
