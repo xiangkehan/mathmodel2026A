@@ -589,13 +589,13 @@ def fig1():
     save(fig, "fig1_输入数据")
 
 
-# ====================== F2 问题1 解析对拍 ======================
+# ====================== F2 问题1 解析验证 ======================
 def fig2():
     """(a) 特征位置温度时程：中心 r=0 与表面 r=R₀ 的数值解 vs 半解析解；
     (b) 偏差 |T_num−T 解析| 时程（对数纵轴），标出四位小数输出分辨率 5e-5 ℃。
 
     数据源 03-数据/q1_fields.npz（times/T_C/Ts，1 s 网格 0–1800 s）、
-    03-数据/v1_points_final.csv（对拍点的 T_num/T_analytic/abs_dev）；
+    03-数据/v1_points_final.csv（比较点的 T_num/T_analytic/abs_dev）；
     半解析解由 02-代码/analytic_heat.py 的 Robin 谱解现算（300 模，0–1800 s 同网格）。
     """
     from analytic_heat import RobinCylinder
@@ -625,7 +625,7 @@ def fig2():
     t_pt = [float(p["t_s"]) / 60.0 for p in pts if abs(float(p["r_cm"])) < 1e-9]
     y_pt = [float(p["T_num_C"]) for p in pts if abs(float(p["r_cm"])) < 1e-9]
     axA.plot(t_pt, y_pt, ls="none", marker="o", ms=3.0, mfc="white", mec=ROLE["model"],
-             mew=0.9, label="对拍点（表 4 的 V1）")
+             mew=0.9, label="解析比较点（表 4 的 V1）")
     axA.set_ylabel("温度 $T$ / ℃")
     axA.set_ylim(27.9, 37.6)
     style_axis(axA, grid="y")
@@ -650,17 +650,17 @@ def fig2():
     style_axis(axB, grid="y")
     axB.legend(loc="lower left", handlelength=1.6, labelspacing=0.24)
     panel(axB, "(b)", dx=-0.115)
-    # 面板画的是 5 个特征位置的**逐点**偏差（插值对拍），与论文正文引用的
+    # 面板画的是 5 个特征位置的**逐点**偏差（解析比较），与论文正文引用的
     # “N=320 全域单元中心最大偏差 5.9e-7 ℃”（v1_convergence.csv 末行）不是同一口径，
     # 标题必须写明“特征位置”，避免与论文的全局验证数字混淆。标题受 ≤28 字符上限约束。
     tile(axB, "特征位置逐点偏差：$<3.2\\times10^{-6}$")
 
-    print(f"  [F2] 解析对拍：对拍点最大偏差 {dev_max:.3e} ℃（{len(pts)} 点，四位小数分辨率 "
+    print(f"  [F2] 解析验证：比较点最大偏差 {dev_max:.3e} ℃（{len(pts)} 点，四位小数分辨率 "
           f"{res:.0e} ℃，低 {res/dev_max:.0f} 倍）；1 s 网格 1800 点全程：中心 max "
           f"{dev_c.max():.2e}、表面 max {dev_s.max():.2e} ℃；中心 1800 s 数值 {num_c[-1]:.4f} "
           f"/ 解析 {T_ana_c[-1]:.4f} ℃；表面 1800 s 数值 {num_s[-1]:.4f} / 解析 {T_ana_s[-1]:.4f} ℃",
           flush=True)
-    save(fig, "fig2_问题1解析对拍")
+    save(fig, "fig2_问题1解析验证")
 
 
 # ====================== F3 温湿剖面 ======================
@@ -876,7 +876,9 @@ def fig4(no_cache=False):
 # 记的是适用范围（问题3/问题4/两问），类别改由误差源前缀判定 → (前缀, 图例名, 颜色)
 BUDGET_CAT = [("数值误差", "数值误差", ROLE["model"]),
               ("环境情景", "环境情景", ROLE["ref"]),
-              ("口径依赖", "口径依赖", OI["orange"]),
+              # 前缀仍是数据侧的键"口径依赖"（error_budget.csv / 结果总账 的键名不动，
+              # 免得牵动总账 5 行键），图例名改为论文表~\ref{tab:预算} 里同类的"设定依赖"，图文口径一致
+              ("口径依赖", "设定依赖", OI["orange"]),
               ("模型结构差异", "模型结构差异", ROLE["aux2"]),
               ("已检查因素", "累计量级", OI["grey"])]
 
@@ -982,7 +984,10 @@ def fig5():
         ax2.barh(y, m, color=ycol(r["误差源"]), height=0.60, zorder=3)
         ax2.text(m * 1.45, y, fmt_mag(m), va="center", fontsize=7.5)
     ax2.set_yticks(ys2)
-    ax2.set_yticklabels([r["误差源"] for r in budget], fontsize=7.5)
+    # 图上显示"设定依赖"（与论文表~\ref{tab:预算} 的类别名一致）；数据侧的键仍是 CSV 的
+    # "口径依赖"，不动数据文件以免牵动 结果总账.csv / check_numbers.py 的键名
+    ax2.set_yticklabels([r["误差源"].replace("口径依赖", "设定依赖") for r in budget],
+                        fontsize=7.5)
     ax2.set_xscale("log")
     ax2.set_xlim(2e-7, 300)
     ax2.set_xlabel("误差量级 / h（对数轴）")
