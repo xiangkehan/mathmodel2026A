@@ -3,7 +3,7 @@ import re
 import sys
 from pathlib import Path
 
-tex = (Path(__file__).parent / "main.tex").read_text(encoding="utf-8")
+tex = (Path(__file__).parent / "中药材烘干热湿耦合建模、守恒求解与模型检验.tex").read_text(encoding="utf-8")
 m = re.search(r"\\begin\{abstract\}(.*?)\\end\{abstract\}", tex, re.S)
 body = m.group(1)
 plain = re.sub(r"\\[a-zA-Z]+\*?(\[[^\]]*\])?(\{[^}]*\})?", "", body)

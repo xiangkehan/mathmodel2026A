@@ -1,5 +1,5 @@
 """数字一致性自查（A12 结构化重写版）：期望值全部来自 03-数据 的数据文件，
-main.tex / tables.tex 只作为“被核对对象”。
+中药材烘干热湿耦合建模、守恒求解与模型检验.tex / tables.tex 只作为“被核对对象”。
 
 数据源（本模块只读，不重算）
   总账 = 03-数据/结果总账.csv             (类别, 项目, 子项) → 值 / 单位/备注；论文关键数字主源
@@ -14,7 +14,7 @@ main.tex / tables.tex 只作为“被核对对象”。
   RES = 04-结果/result{1,2,3,4}.xlsx      交付工作簿（md5 与行数现场核对）
 
 两类断言
-  chk(desc, literal, expect, src)  ① literal 必须出现在 main.tex+tables.tex（去 $ 后字面匹配）；
+  chk(desc, literal, expect, src)  ① literal 必须出现在 中药材烘干热湿耦合建模、守恒求解与模型检验.tex+tables.tex（去 $ 后字面匹配）；
                                    ② 且与 expect（数据文件里的期望值/表达式）在“字面自身精度”
                                       上一致——即 literal 是 expect 按该位数的正确舍入
                                       （逐数比较，容差取两侧较粗的末位半个单位 ×1.01 浮点余量）。
@@ -39,7 +39,7 @@ A_DIR = HERE.parent
 DATA = A_DIR / "03-数据"
 RESDIR = A_DIR / "04-结果"
 
-RAW = ((HERE / "main.tex").read_text(encoding="utf-8")
+RAW = ((HERE / "中药材烘干热湿耦合建模、守恒求解与模型检验.tex").read_text(encoding="utf-8")
        + (HERE / "tables.tex").read_text(encoding="utf-8"))
 TEX = RAW.replace("$", "")          # 去数学模式符号后做字面匹配（沿用原判据）
 
@@ -368,7 +368,7 @@ def main():
         "q4_endo_eval.csv rmse_crossing_to_72h_mm")
     chk("耦合主解末期半径", "1.1836", EVAL["R_pred_72h_cm"], "q4_endo_eval.csv R_pred_72h_cm")
     # 60→72 h 的末端降幅：单位易错点（cm→mm 是 ×10，不是 ×100），单独锁死
-    # 该值曾被写成 0.31 mm（偏大 10 倍），源 03-数据/内生收缩模型.md 与 main.tex 两处已更正
+    # 该值曾被写成 0.31 mm（偏大 10 倍），源 03-数据/内生收缩模型.md 与 中药材烘干热湿耦合建模、守恒求解与模型检验.tex 两处已更正
     chk("耦合末端 60→72h 降幅", "0.031",
         (float(EVAL["R_pred_60h_cm"]) - float(EVAL["R_pred_72h_cm"])) * 10.0,
         "q4_endo_eval.csv (R_pred_60h_cm − R_pred_72h_cm) × 10 = mm")

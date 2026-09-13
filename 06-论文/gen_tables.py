@@ -110,9 +110,7 @@ def paper_tables():
 
 
 def main():
-    tex = ["% 本文件由 gen_tables.py 从 03-数据/*.csv 自动生成，禁止手工改数。\n",
-           paper_tables()]
-    Path(OUT).write_text("\n".join(tex), encoding="utf-8")
+    Path(OUT).write_text(paper_tables(), encoding="utf-8")
     print(f"written {OUT}")
 
 

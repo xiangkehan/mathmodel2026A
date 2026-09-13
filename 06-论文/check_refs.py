@@ -3,7 +3,7 @@ import re
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-tex = (HERE / "main.tex").read_text(encoding="utf-8") + (HERE / "tables.tex").read_text(encoding="utf-8")
+tex = (HERE / "中药材烘干热湿耦合建模、守恒求解与模型检验.tex").read_text(encoding="utf-8") + (HERE / "tables.tex").read_text(encoding="utf-8")
 labels = set(re.findall(r"\\label\{([^}]*)\}", tex))
 refs = set(re.findall(r"\\ref\{([^}]*)\}", tex)) | set(re.findall(r"\\eqref\{([^}]*)\}", tex))
 cites = set(re.findall(r"\\cite\{([^}]*)\}", tex))

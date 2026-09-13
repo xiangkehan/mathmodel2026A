@@ -9,18 +9,10 @@
 \usepackage{listings}
 \renewcommand{\lstlistingname}{代码}
 \usepackage{float}
-% 清单代码字体：cmtt（Latin Modern Mono）缺 λ μ ε ρ ∂ ∈ ∫ ≡ ≈ ≥ ∝ ⇒ 与上/下标等
-% 18 个符号，缺字会被 XeTeX 整字丢弃；JuliaMono 四种字重/字形全覆盖这些符号，
-% 且 Scale=0.875 使其字宽 0.600 em × 0.875 = 0.525 em 与 cmtt 一致，
-% 故代码的折行与分页不变（粗体关键词、斜体注释的原有观感也得以保留）。
 \newfontfamily\codefont{JuliaMono-Regular.ttf}[
   Path=C:/texlive/2026/texmf-dist/fonts/truetype/public/juliamono/, Scale=0.875,
   BoldFont=JuliaMono-Bold.ttf, ItalicFont=JuliaMono-RegularItalic.ttf,
   BoldItalicFont=JuliaMono-BoldItalic.ttf]
-% 行号落入框内、框线与版心对齐：xleftmargin 让出行号位，framexleftmargin 把框左线移回版心左界，
-% numbersep 收窄行号与代码的间距；三者需配套，改其一都会使框线偏离版心
-% showstringspaces=false：listings 默认把字符串内的空格画成可见空格符「␣」，
-% 且该符号取默认 \ttfamily（cmtt），与清单字体不一致，正文代码里应按普通空格排版。
 \lstset{basicstyle=\ttfamily\codefont\small,breaklines=true,columns=flexible,frame=single,numbers=left,numberstyle=\tiny,
         showstringspaces=false,xleftmargin=15pt,framexleftmargin=11.6pt,xrightmargin=3.4pt,numbersep=5pt}
 \usepackage[colorlinks=true,linkcolor=black,citecolor=black,urlcolor=black]{hyperref}
@@ -28,13 +20,10 @@
 \numberwithin{equation}{section}
 \renewcommand{\arraystretch}{1.25}
 
-% 页码：页脚居中、阿拉伯数字连续编号，全篇无页眉（校内格式规范第三条）
 \pagestyle{plain}
 
-% 行距：单倍行距（校内通知四.3：其余内容小 4 号宋体、单倍行距）
 \linespread{1.0}
 
-% 中文数字章节编号：一、二、…；二级标题为“章.节”式
 \ctexset{
   section = {name = {,、}, number = \chinese{section},
              format = \centering\songti\bfseries\zihao{4}},
@@ -44,12 +33,15 @@
                    format = \songti\bfseries\zihao{-4}},
 }
 
-% 图未就位时先占位，就位后自动使用；宽度参数适配图的设计宽度
+\renewenvironment{abstract}{%
+  \normalsize
+  \begin{center}{\songti\bfseries\zihao{4}\abstractname}\end{center}
+  \par
+}{\par}
+
 \newcommand{\figplaceholder}[1]{\fbox{\parbox[c][5.5cm][c]{0.86\linewidth}{\centering 图位：#1}}}
 \newcommand{\includefig}[3][0.86\linewidth]{\IfFileExists{../05-图表/#2}{\includegraphics[width=#1]{#2}}{\figplaceholder{#3}}}
 
-% 首页版面：article 的 \@maketitle 无条件输出 {\large\@author\par} 与 1.5em 空行，
-% 在 \author{} 为空时白占约 32pt。此处只去掉这一行，使摘要（含关键词）整块落在第 1 页。
 \makeatletter
 \renewcommand\@maketitle{%
   \newpage
@@ -75,26 +67,28 @@
 
 \begin{abstract}
 
-\noindent 中药材干燥是产地加工的关键环节：水分偏高易霉变，干燥不足或过度都会影响品质。本文以长 25 cm、半径 2 cm 的圆柱药柱为对象，初始干基含水率 2.55 kg/kg、初温 28
+中药材干燥是产地加工的关键环节：水分偏高易霉变，干燥不足或过度都会影响品质。本文以长 25 cm、半径 2 cm 的圆柱药柱为对象，初始干基含水率 2.55 kg/kg、初温 28
 ${}^\circ$C，研究预热段与全过程的温度场与水分浓度场演变，并确定固定几何与计入失水收缩两种情形下的达标时间，为烘干时长的控制提供依据。
 
-\noindent 针对问题 1（0--1800 s 预热段），含水率变化很小、热湿近似解耦，材料参数按附录 2 取常数，热方程退化为线性圆柱 Robin 问题；由此写出圆柱 Robin 特征展开与时变环境 Duhamel
+针对问题 1（0--1800 s 预热段），含水率变化很小、热湿近似解耦，材料参数按附录 2 取常数，热方程退化为线性圆柱 Robin 问题；由此写出圆柱 Robin 特征展开与时变环境 Duhamel
 卷积的解析谱解，再与守恒型有限体积数值解逐点对照，最大偏差$5.9\times10^{-7}\,^{\circ}$C，1800 s 末全场温差收敛到约 $1\,^{\circ}$C。解析解不含离散误差，两者一致说明所报温度场是模型的解，空
 间离散、边界处理与时间步进没有引入可观误差。
 
-\noindent 针对问题 2，材料参数按附录 3 取用，保留温度与水分浓度的双向耦合，用质量坐标下的守恒型有限体积格式求解：表面取半单元串联阻力，时间推进用后向
+针对问题 2，材料参数按附录 3 取用，保留温度与水分浓度的双向耦合，用质量坐标下的守恒型有限体积格式求解：表面取半单元串联阻力，时间推进用后向
 欧拉加局部外推，非线性项用 Picard--Newton 交替迭代，步长自适应。判据$Bi_m\in[1.1805,47.7480]$ 表明内部扩散主导，把含水率作集总或平均处理会把达标时间低估 46.03 h（$-80\%$），与题目要求的空间分布不
 符；因此保留全场分布，给出 72 h 内各时刻的温度与水分浓度场。
 
-\noindent 针对问题 3，在问题 2 的模型上加入达标判据（各处水分浓度首次低于0.15 kg/kg 干基），由数值扫描确认中心为最慢点，按穿越区间及其右侧安全端点报告达标时刻：$\bm{t_f=57.1799}$ h（Richardson
+针对问题 3，在问题 2 的模型上加入达标判据（各处水分浓度首次低于0.15 kg/kg 干基），由数值扫描确认中心为最慢点，按穿越区间及其右侧安全端点报告达标时刻：$\bm{t_f=57.1799}$ h（Richardson
 外推 57.1636 h）。该值远大于常系数参考时标15.70 h，量级与参数一致；其中对边界汇取值最敏感，$C_e=0.1366$ 时增大 22.6 h，已检验因素的累计偏移量级约 1.71 h。
 
-\noindent 针对问题 4，几何按仿射收缩 $r=R(t)\sqrt q$ 演化，方程与固定域同形；为确定$R(t)$，把失水收缩、毛细-膨压塌陷、结皮-成孔停滞三项机制写成半经验关系式，由湿度场逐步预测半
+针对问题 4，几何按仿射收缩 $r=R(t)\sqrt q$ 演化，方程与固定域同形；为确定$R(t)$，把失水收缩、毛细-膨压塌陷、结皮-成孔停滞三项机制写成半经验关系式，由湿度场逐步预测半
 径，预测不使用附件 2 的数据，附件 2 实测半径仅作交叉验证（RMSE 0.047 mm、偏差 $-0.56\%$）。得 $\bm{t_f=50.5369}$ h，比问题 3 快 $11.6\%$：附录 4 的材料参数使固定半径下的烘干时间放大 $2.26$ 倍（$+78.57$ h），半径收缩（$R^2$ 降
 64\%）则加速$60.9\%$，两者相抵后反而更快；耦合主解在满 72 h 真实轨迹上的全程 RMSE 0.088 mm。
 
 \smallskip\noindent\textbf{关键词}：热湿耦合\enspace 质量坐标\enspace 守恒有限体积\enspace 无量纲判据\enspace 模型检验\enspace 中药材干燥
 \end{abstract}
+
+\clearpage
 
 \section{问题重述}
 
@@ -879,7 +873,7 @@ $+22.6261$ h 单列，不计入上表的合成。前者是 5.3 节在情景假�
 
 \section*{参考文献}
 \begingroup
-\renewcommand{\section}[2]{}% 抑制 thebibliography 自动 \refname，避免双标题
+\renewcommand{\section}[2]{}%
 \begin{thebibliography}{9}
 \bibitem{luikov} Luikov A V. \emph{Heat and Mass Transfer in Capillary-Porous Bodies}.
 Pergamon Press, Oxford, 1966.
@@ -894,8 +888,6 @@ Marcel Dekker, New York, 1986.
 \endgroup
 
 \appendix
-% 附录内的二级标题单独配置：若不重定义 subsection，它会沿用导言区的
-% \arabic{section}.\arabic{subsection}，而附录里 section 计数器为 5，会渲染成「5.1」
 \ctexset{section = {name = {附录 ,：}, number = \Alph{section},
            format = \centering\songti\bfseries\zihao{4}},
          subsection = {number = \Alph{section}.\arabic{subsection},
@@ -1047,29 +1039,43 @@ numpy/scipy/pandas/openpyxl。
 result3 \texttt{fbe982ff…}、result4 \texttt{80c73431…}）。
 
 \subsection*{支撑材料文件列表}
-支撑材料打包为 \texttt{论文.zip}（\texttt{论文/} 顶层目录，62 个文件、6 个目录，
-解压后约 5.03 MB、压缩后约 3.76 MB）；下列清单与压缩包内容逐项一致。
-赛题提供的原始数据（附件 1、附件 2，仓库 \texttt{01-题目/原始文件/}）按规范豁免，不在包内。
+交付文件夹为 \texttt{论文/}（顶层目录，64 个文件、7 个目录，未压缩约 5.1 MB）；
+四个结果工作簿按题目要求命名并置于包根目录，其余材料在 \texttt{论文/支撑材料/} 下
+按源码仓库结构分组。下列清单与该交付文件夹内容逐项一致。
 
-% 文件清单里文件名很长、内部几乎没有断行点，整块改用左对齐，避免连续等宽文件名撑出 Overfull；
-% \fsep = 「、」+ 零惩罚断点，再给每两个文件名之间留一个换行机会
+\textbf{如何复现}：打开（或解包）后进入 \texttt{论文/支撑材料/}，该目录完整镜像源码仓库的相对结构
+（\texttt{02-代码/}、\texttt{03-数据/}、\texttt{04-结果/}、\texttt{05-图表/}、\texttt{06-论文/}），
+脚本按仓库相对路径解析的输入输出路径、以及本文的插图与源码引用路径均\textbf{原样成立}，无需调整目录。
+编译论文：\texttt{cd 支撑材料/06-论文 \&\& xelatex 中药材烘干热湿耦合建模、守恒求解与模型检验.tex}
+（连跑两遍以解析交叉引用）；复现结果：\texttt{cd 支撑材料/02-代码 \&\& python run\_all.py}，
+按既定顺序执行全部脚本并由脚本写出四个结果工作簿与 \texttt{03-数据/} 的中间数据
+（\texttt{03-数据/} 下的 \texttt{.npz} 张量缓存合计约 23.5 MB，超 20 MB 上限，由该命令重新生成，故未随包提供）。
+\texttt{04-结果/} 是脚本的结果写入处，交付结果工作簿同时置于包根目录，故该目录在包内留空，
+保留它是为了复跑时不必手工建目录。赛题原件按规范第十一条豁免未随包。
+
 {\raggedright
 \newcommand{\fsep}{、\allowbreak}
 \begin{itemize}
-  \item \textbf{论文/}（2）：\texttt{00-审计说明.md}\fsep \texttt{main.pdf}；
-  \item \textbf{论文/论文源码/}（8）：\texttt{main.tex}\fsep \texttt{tables.tex}\fsep
-        \texttt{写作说明.md}\fsep \texttt{gen\_tables.py}\fsep \texttt{check\_abstract.py}\fsep
-        \texttt{check\_numbers.py}\fsep \texttt{check\_refs.py}\fsep \texttt{check\_table6.py}；
-  \item \textbf{论文/代码/}（19）：\texttt{analytic\_heat.py}\fsep
+  \item \textbf{论文/}（7）：\texttt{中药材烘干热湿耦合建模、守恒求解与模型检验.pdf}\fsep
+        \texttt{result1.xlsx}\fsep \texttt{result2.xlsx}\fsep \texttt{result3.xlsx}\fsep
+        \texttt{result4.xlsx}\fsep \texttt{AI工具使用声明.docx}\fsep \texttt{00-审计说明.docx}；
+  \item \textbf{论文/支撑材料/02-代码/}（13）：\texttt{analytic\_heat.py}\fsep
         \texttt{endogenous\_calibrated.py}\fsep \texttt{latent\_scenario.py}\fsep
         \texttt{mech\_shrinkage.py}\fsep \texttt{plot\_all.py}\fsep \texttt{run\_all.py}\fsep
         \texttt{run\_m4.py}\fsep \texttt{run\_q1.py}\fsep \texttt{run\_q23.py}\fsep
         \texttt{run\_q4.py}\fsep \texttt{solver\_q1.py}\fsep \texttt{solver\_q23.py}\fsep
-        \texttt{solver\_q4.py}\fsep \texttt{run\_mech\_A.py}\fsep
+        \texttt{solver\_q4.py}；
+  \item \textbf{论文/支撑材料/03-数据/}（20）：\texttt{run\_mech\_A.py}\fsep
         \texttt{run\_mech\_mainline.py}\fsep \texttt{run\_mech\_refit.py}\fsep
         \texttt{run\_q4\_endo.py}\fsep \texttt{run\_q4\_endo\_fields.py}\fsep
-        \texttt{交付口径-核对.py}；
-  \item \textbf{论文/图/}（17）：\texttt{fig1\_输入数据.pdf}\fsep
+        \texttt{交付口径-核对.py}\fsep \texttt{结果总账.csv}\fsep \texttt{paper\_tables.csv}\fsep
+        \texttt{q4\_endo\_eval.csv}\fsep \texttt{q4\_split.csv}\fsep
+        \texttt{q4\_endo\_convergence.csv}\fsep \texttt{mechRefit.csv}\fsep
+        \texttt{sensitivity.csv}\fsep \texttt{error\_budget.csv}\fsep
+        \texttt{latent\_scenario.csv}\fsep \texttt{D\_of\_C.csv}\fsep \texttt{surface\_flux.csv}\fsep
+        \texttt{交付口径.md}\fsep \texttt{力学升级\_修复重标定.md}\fsep \texttt{内生收缩模型.md}；
+  \item \textbf{论文/支撑材料/04-结果/}（0）：空目录（脚本的结果写入处，交付结果同时在包根目录）；
+  \item \textbf{论文/支撑材料/05-图表/}（17）：\texttt{fig1\_输入数据.pdf}\fsep
         \texttt{fig2\_问题1解析验证.pdf}\fsep \texttt{fig3\_温湿剖面.pdf}\fsep
         \texttt{fig4\_达标穿越.pdf}\fsep \texttt{fig5\_敏感性.pdf}\fsep
         \texttt{fig6\_收缩机制分析.pdf}\fsep \texttt{fig7\_内生收缩贴合.pdf}\fsep
@@ -1079,24 +1085,20 @@ result3 \texttt{fbe982ff…}、result4 \texttt{80c73431…}）。
         \texttt{fig15\_收敛与守恒检验.pdf}\fsep \texttt{fig16\_中心表面演化与半径收缩.pdf}\fsep
         \texttt{fig17\_几何模型与边界条件示意图.pdf}\fsep
         \texttt{\_fig4\_对照\_附4固定R\_maxU.csv}；
-  \item \textbf{论文/数据证据/}（12）：\texttt{结果总账.csv}\fsep \texttt{paper\_tables.csv}\fsep
-        \texttt{交付口径.md}\fsep \texttt{q4\_endo\_eval.csv}\fsep \texttt{q4\_split.csv}\fsep
-        \texttt{sensitivity.csv}\fsep \texttt{error\_budget.csv}\fsep
-        \texttt{latent\_scenario.csv}\fsep \texttt{D\_of\_C.csv}\fsep \texttt{surface\_flux.csv}\fsep
-        \texttt{力学升级\_修复重标定.md}\fsep \texttt{内生收缩模型.md}；
-  \item \textbf{论文/结果文件/}（4）：\texttt{result1.xlsx}\fsep \texttt{result2\_降采样.xlsx}\fsep
-        \texttt{result3.xlsx}\fsep \texttt{result4.xlsx}。
+  \item \textbf{论文/支撑材料/06-论文/}（7）：\texttt{中药材烘干热湿耦合建模、守恒求解与模型检验.tex}\fsep
+        \texttt{tables.tex}\fsep \texttt{gen\_tables.py}\fsep
+        \texttt{check\_abstract.py}\fsep \texttt{check\_numbers.py}\fsep
+        \texttt{check\_refs.py}\fsep \texttt{check\_table6.py}。
 \end{itemize}}
 
-% 结论段较长且含不易断行的等宽文件名，单给一点 emergency 伸展量即可避免 Overfull
 {\emergencystretch=2em
-其中 \texttt{result1}、\texttt{result3}、\texttt{result4} 为原表原样入包；
-\texttt{result2} 为\textbf{降采样版}：原表 \texttt{result2.xlsx} 为 1 s 时间网格
-（温度与水分浓度 2 张表 × 209447 数据行 × 22 列，27.9 MB），超过支撑材料 20 MB 上限，
-故按每 1800 s（30 min）一帧抽取、每帧保留完整径向剖面（21 个节点），
+其中 \texttt{result1.xlsx}、\texttt{result3.xlsx}、\texttt{result4.xlsx} 为原表原样入包；
+包根目录的 \texttt{result2.xlsx} 为\textbf{降采样版}（仓库内文件名为 \texttt{result2\_降采样.xlsx}）：
+原表为 1 s 时间网格（温度与水分浓度 2 张表 × 209447 数据行 × 22 列，27.9 MB），
+超过支撑材料 20 MB 上限，故按每 1800 s（30 min）一帧抽取、每帧保留完整径向剖面（21 个节点），
 并加留首帧 1 s 与末帧 209447 s（$t_f+3600$ s 余量），共 118 帧；
 表名、列头、列序与原表一致。其余中间工作簿与张量（\texttt{.npz}）、位图、日志仍不入包。}
-\clearpage
+
 核心求解步骤的程序摘录（守恒步进与表面重建，注释从略）如下。
 
 \begin{lstlisting}[language=Python,caption={守恒耦合步进核心（solver 摘录）}]
@@ -1119,9 +1121,9 @@ def coupled_step(U, T, dt, Ta, Cenv, dq, newton):
 \end{lstlisting}
 
 \section{核心程序代码}
-本附录列出四个核心模块的完整源码，共 868 行；四份源码均由源文件直接引入，
-未手工转录。其余脚本、数据与图表的完整可运行代码见支撑材料 \texttt{论文.zip} 的
-\texttt{论文/代码/}（19 个脚本）与 \texttt{论文/数据证据/}。
+本附录列出四个核心模块的完整源码，共 868 行；四份源码均自源文件直接引入，未手工转录。
+其余脚本、数据与图表的完整可运行代码见支撑材料 \texttt{论文/支撑材料/02-代码/}（13 个脚本）
+与 \texttt{论文/支撑材料/03-数据/}（6 个脚本与全部证据数据）。
 
 \subsection{解析谱解}
 圆柱 Robin 特征展开与时变环境 Duhamel 卷积的解析解，用作问题 1 的独立参照（V1）。
