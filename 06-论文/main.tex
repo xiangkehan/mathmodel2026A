@@ -9,10 +9,20 @@
 \usepackage{listings}
 \renewcommand{\lstlistingname}{代码}
 \usepackage{float}
+% 清单代码字体：cmtt（Latin Modern Mono）缺 λ μ ε ρ ∂ ∈ ∫ ≡ ≈ ≥ ∝ ⇒ 与上/下标等
+% 18 个符号，缺字会被 XeTeX 整字丢弃；JuliaMono 四种字重/字形全覆盖这些符号，
+% 且 Scale=0.875 使其字宽 0.600 em × 0.875 = 0.525 em 与 cmtt 一致，
+% 故代码的折行与分页不变（粗体关键词、斜体注释的原有观感也得以保留）。
+\newfontfamily\codefont{JuliaMono-Regular.ttf}[
+  Path=C:/texlive/2026/texmf-dist/fonts/truetype/public/juliamono/, Scale=0.875,
+  BoldFont=JuliaMono-Bold.ttf, ItalicFont=JuliaMono-RegularItalic.ttf,
+  BoldItalicFont=JuliaMono-BoldItalic.ttf]
 % 行号落入框内、框线与版心对齐：xleftmargin 让出行号位，framexleftmargin 把框左线移回版心左界，
 % numbersep 收窄行号与代码的间距；三者需配套，改其一都会使框线偏离版心
-\lstset{basicstyle=\ttfamily\small,breaklines=true,columns=flexible,frame=single,numbers=left,numberstyle=\tiny,
-        xleftmargin=15pt,framexleftmargin=11.6pt,xrightmargin=3.4pt,numbersep=5pt}
+% showstringspaces=false：listings 默认把字符串内的空格画成可见空格符「␣」，
+% 且该符号取默认 \ttfamily（cmtt），与清单字体不一致，正文代码里应按普通空格排版。
+\lstset{basicstyle=\ttfamily\codefont\small,breaklines=true,columns=flexible,frame=single,numbers=left,numberstyle=\tiny,
+        showstringspaces=false,xleftmargin=15pt,framexleftmargin=11.6pt,xrightmargin=3.4pt,numbersep=5pt}
 \usepackage[colorlinks=true,linkcolor=black,citecolor=black,urlcolor=black]{hyperref}
 \graphicspath{{../05-图表/}}
 \numberwithin{equation}{section}
@@ -884,8 +894,12 @@ Marcel Dekker, New York, 1986.
 \endgroup
 
 \appendix
+% 附录内的二级标题单独配置：若不重定义 subsection，它会沿用导言区的
+% \arabic{section}.\arabic{subsection}，而附录里 section 计数器为 5，会渲染成「5.1」
 \ctexset{section = {name = {附录 ,：}, number = \Alph{section},
-           format = \centering\songti\bfseries\zihao{4}}}
+           format = \centering\songti\bfseries\zihao{4}},
+         subsection = {number = \Alph{section}.\arabic{subsection},
+                       format = \songti\bfseries\zihao{-4}}}
 
 \section{移动域方程的推导要点}
 本文的出发点同时包含干物质守恒与水分守恒。设 $\rho_d$ 为单位总体积中的
@@ -1034,7 +1048,7 @@ result3 \texttt{fbe982ff…}、result4 \texttt{80c73431…}）。
 
 \subsection*{支撑材料文件列表}
 支撑材料打包为 \texttt{论文.zip}（\texttt{论文/} 顶层目录，62 个文件、6 个目录，
-解压后约 4.8 MB、压缩后约 3.6 MB）；下列清单与压缩包内容逐项一致。
+解压后约 5.03 MB、压缩后约 3.76 MB）；下列清单与压缩包内容逐项一致。
 赛题提供的原始数据（附件 1、附件 2，仓库 \texttt{01-题目/原始文件/}）按规范豁免，不在包内。
 
 % 文件清单里文件名很长、内部几乎没有断行点，整块改用左对齐，避免连续等宽文件名撑出 Overfull；
@@ -1103,6 +1117,28 @@ def coupled_step(U, T, dt, Ta, Cenv, dq, newton):
         U_new = U_new + dU
     return U_new, T_new
 \end{lstlisting}
+
+\section{核心程序代码}
+本附录列出四个核心模块的完整源码，共 868 行；四份源码均由源文件直接引入，
+未手工转录。其余脚本、数据与图表的完整可运行代码见支撑材料 \texttt{论文.zip} 的
+\texttt{论文/代码/}（19 个脚本）与 \texttt{论文/数据证据/}。
+
+\subsection{解析谱解}
+圆柱 Robin 特征展开与时变环境 Duhamel 卷积的解析解，用作问题 1 的独立参照（V1）。
+\lstinputlisting[language=Python,caption={解析谱解（analytic\_heat.py，122 行）}]{../02-代码/analytic_heat.py}
+
+\subsection{热湿耦合主求解器}
+质量坐标下的守恒型有限体积格式：半单元内阻与外对流阻串联重建表面值、
+后向欧拉加局部外推、Picard--Newton 交替迭代、自适应步长。
+\lstinputlisting[language=Python,caption={热湿耦合主求解器（solver\_q23.py，271 行）}]{../02-代码/solver_q23.py}
+
+\subsection{移动域求解器}
+仿射收缩 $r=R(t)\sqrt q$ 下的移动域求解与达标判定。
+\lstinputlisting[language=Python,caption={移动域求解器（solver\_q4.py，232 行）}]{../02-代码/solver_q4.py}
+
+\subsection{内生收缩闭合}
+由湿度场逐步预测半径 $R(t)$ 的半经验闭合（三项机制），标定参数见附录 C。
+\lstinputlisting[language=Python,caption={内生收缩闭合（endogenous\_calibrated.py，243 行）}]{../02-代码/endogenous_calibrated.py}
 
 \clearpage
 \section*{AI 工具使用声明}
