@@ -1039,7 +1039,7 @@ numpy/scipy/pandas/openpyxl。
 result3 \texttt{fbe982ff…}、result4 \texttt{80c73431…}）。
 
 \subsection*{支撑材料文件列表}
-交付文件夹为 \texttt{论文/}（顶层目录，63 个文件、7 个目录，未压缩约 5.0 MB）；
+交付文件夹为 \texttt{论文/}（顶层目录，63 个文件、7 个目录，未压缩约 5.7 MB）；
 四个结果工作簿按题目要求命名并置于包根目录，其余材料在 \texttt{论文/支撑材料/} 下
 按源码仓库结构分组。下列清单与该交付文件夹内容逐项一致。
 
@@ -1121,9 +1121,10 @@ def coupled_step(U, T, dt, Ta, Cenv, dq, newton):
 \end{lstlisting}
 
 \section{核心程序代码}
-本附录列出四个核心模块的完整源码，共 868 行；四份源码均自源文件直接引入，未手工转录。
-其余脚本、数据与图表的完整可运行代码见支撑材料 \texttt{论文/支撑材料/代码/}（13 个脚本）
-与 \texttt{论文/支撑材料/数据/}（6 个脚本与全部证据数据）。
+本附录列出建模用到的全部 19 个脚本的完整源码：\texttt{代码/} 13 个共 5473 行、
+\texttt{数据/} 6 个共 1502 行，合计 6975 行。全部源码均由 \texttt{lstinputlisting}
+自源文件直接引入，未手工转录，与支撑材料中的同一份文件逐字节一致；
+数据、图表与结果文件的清单见前文「支撑材料文件列表」。
 
 \subsection{解析谱解}
 圆柱 Robin 特征展开与时变环境 Duhamel 卷积的解析解，用作问题 1 的独立参照（V1）。
@@ -1141,6 +1142,66 @@ def coupled_step(U, T, dt, Ta, Cenv, dq, newton):
 \subsection{内生收缩闭合}
 由湿度场逐步预测半径 $R(t)$ 的半经验闭合（三项机制），标定参数见附录 C。
 \lstinputlisting[language=Python,caption={内生收缩闭合（endogenous\_calibrated.py，243 行）}]{../代码/endogenous_calibrated.py}
+
+\subsection{问题 1 求解器}
+质量坐标（$r=R_0\sqrt q$）下的守恒型有限体积求解器。
+\lstinputlisting[language=Python,caption={问题 1 求解器（solver\_q1.py，258 行）}]{../代码/solver_q1.py}
+
+\subsection{问题 1 求解与检验流程}
+问题 1 一条龙：求解 + V1 解析对照 + 守恒与退化检验 + 导出 result1.xlsx。
+\lstinputlisting[language=Python,caption={问题 1 求解与检验流程（run\_q1.py，312 行）}]{../代码/run_q1.py}
+
+\subsection{问题 2/3 求解与检验流程}
+问题 2/3 一条龙：双向耦合求解 + $t_f$ 主结果 + 各项门禁 + result2/result3。
+\lstinputlisting[language=Python,caption={问题 2/3 求解与检验流程（run\_q23.py，384 行）}]{../代码/run_q23.py}
+
+\subsection{问题 4 移动域求解流程}
+问题 4 一条龙：移动域主解 + 效应拆分 + V5 退化 + 一致性检查 + result4.xlsx。
+\lstinputlisting[language=Python,caption={问题 4 移动域求解流程（run\_q4.py，385 行）}]{../代码/run_q4.py}
+
+\subsection{问题 4 内生几何主解}
+收缩由模型自身预测、附件 2 降为验证数据的问题 4 主解（满 72 h 积分与三段误差评价）。
+\lstinputlisting[language=Python,caption={问题 4 内生几何主解（run\_q4\_endo.py，456 行）}]{../数据/run_q4_endo.py}
+
+\subsection{内生几何时空场导出}
+导出内生问题 4 的完整时空场，供演化图与截面图使用。
+\lstinputlisting[language=Python,caption={内生几何时空场导出（run\_q4\_endo\_fields.py，145 行）}]{../数据/run_q4_endo_fields.py}
+
+\subsection{潜热对照情景}
+表面相变汇的潜热对照情景，用于界定无潜热近似的适用范围（5.3 节）。
+\lstinputlisting[language=Python,caption={潜热对照情景（latent\_scenario.py，210 行）}]{../代码/latent_scenario.py}
+
+\subsection{力学驱动收缩模型}
+由守恒律与有限应变力学约束给出的内生收缩模型（5.5 节的扩展研究）。
+\lstinputlisting[language=Python,caption={力学驱动收缩模型（mech\_shrinkage.py，303 行）}]{../代码/mech_shrinkage.py}
+
+\subsection{力学扩展主线}
+幂律保水本构标定到附件 2 的力学扩展主线模型与全套验证。
+\lstinputlisting[language=Python,caption={力学扩展主线（run\_mech\_mainline.py，308 行）}]{../数据/run_mech_mainline.py}
+
+\subsection{力学扩展退化与情景}
+力学扩展模型的退化检查与无量纲情景研究。
+\lstinputlisting[language=Python,caption={力学扩展退化与情景（run\_mech\_A.py，297 行）}]{../数据/run_mech_A.py}
+
+\subsection{力学扩展重标定}
+修复热算子与内变量推进后的重标定，以及结构性上限分析（5.5 节）。
+\lstinputlisting[language=Python,caption={力学扩展重标定（run\_mech\_refit.py，196 行）}]{../数据/run_mech_refit.py}
+
+\subsection{判据回代与敏感性汇总}
+无量纲判据回代检验、敏感性汇总、误差分量汇总与尾段结构诊断。
+\lstinputlisting[language=Python,caption={判据回代与敏感性汇总（run\_m4.py，567 行）}]{../代码/run_m4.py}
+
+\subsection{交付口径核对}
+逐格读取题库给出的结果模板与论文表格结构，核对交付口径。
+\lstinputlisting[language=Python,caption={交付口径核对（交付口径-核对.py，100 行）}]{../数据/交付口径-核对.py}
+
+\subsection{图表生成}
+由 \texttt{数据/} 的唯一数据源生成全文矢量插图。
+\lstinputlisting[language=Python,caption={图表生成（plot\_all.py，2113 行）}]{../代码/plot_all.py}
+
+\subsection{一键复现}
+单命令驱动：按既定顺序调用上述全部脚本并汇总校验结果。
+\lstinputlisting[language=Python,caption={一键复现（run\_all.py，73 行）}]{../代码/run_all.py}
 
 \clearpage
 \section*{AI 工具使用声明}
